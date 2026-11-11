@@ -1,0 +1,28 @@
+# Material dos jogos fornecido pelo usuario: NUNCA versionar.
+# Imagens de disco, codigo gerado e assets extraidos ficam em private/.
+private/
+
+# Segunda barreira: imagens de disco e ROMs em qualquer lugar do repo.
+*.iso
+*.gdi
+*.cdi
+*.chd
+*.cue
+*.bin
+*.raw
+*.img
+*.mdf
+*.mds
+*.nrg
+*.elf
+*.zip
+*.7z
+*.rar
+
+# Build e lixo de sistema
+build/
+out/
+*.log
+Thumbs.db
+desktop.ini
+.DS_Store
