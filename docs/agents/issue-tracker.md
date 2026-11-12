@@ -48,3 +48,15 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## Local wayfinding
+
+The current wayfinder map is kept as local Markdown, not on GitHub (owner's choice until further notice). It lives in `docs/wayfinder/<map-slug>/`:
+
+- **Map**: `map.md`, with frontmatter `label: wayfinder:map`. Body sections: Destination, Notes, Decisions so far, Not yet specified, Out of scope.
+- **Tickets**: `tickets/NN-slug.md`, one per ticket. Frontmatter: `id`, `title`, `type` (`research`/`prototype`/`grilling`/`task`), `status` (`open`/`closed`), `assignee`, `blocked_by` (list of ticket ids), optional `research` (path to findings).
+- **Frontier query**: tickets with `status: open`, empty `assignee`, and every id in `blocked_by` pointing to a ticket with `status: closed`. Lowest id wins.
+- **Claim**: set `assignee` to the driving dev before any other work.
+- **Resolve**: append a `## Resolution` section with the answer, set `status: closed`, then add one line to the map's "Decisions so far": `- [<title>](tickets/NN-slug.md): <one-line gist>`.
+- **Research findings**: `research/<name>.md`, linked from the ticket's `research` field. Not committed to a throwaway branch.
+- **Moving to GitHub later**: create one issue per file, preserving ids in a mapping table, then wire native sub-issues and dependencies as described above.
