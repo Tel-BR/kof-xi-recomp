@@ -39,19 +39,17 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Inspect the code structure of each candidate release](tickets/08-inspect-code-structure.md): no symbols anywhere; PS2 is one 2 MB CodeWarrior ELF with no overlays; the arcade cart is encrypted (MAME's BSD-3 cipher decrypts it) and holds a 1.19 MB SH-4 program; the Dreamcast disc is that same program with 754 bytes patched plus the cart data byte-identical.
 - [Compare both releases hands-on in emulators](tickets/10-hands-on-comparison.md): owner prefers the PS2 Release (more responsive controls; all PS2-only content is a must for the final port) but discards neither; decisive criteria are excellent performance with the NGBC fighters and rollback netplay; first build needs only the fight itself.
 - [Assess carrying content across releases](tickets/09-carry-content-across-releases.md): content flows one way (the PS2 has all the arcade content, including the arcade balance with the Arranged option off, confirmed by the owner); the arcade's strengths are technical and cannot be carried; rebuilding the PS2 content on the arcade code is large (modes rewritten, fighters and stages need undocumented formats and converters).
+- [Choose the base version](tickets/05-choose-base-version.md): the PS2 Release, US edition SLUS-21687 v1.00, for its content and the NGBC-derived fighters on their own engine; gives up the arcade's simpler hardware, Flycast-proven rollback and a shorter path to the first fight.
 
 ## Not yet specified
 
-- **Recompiler:** adopt an existing static recompiler for the chosen CPU, extend one, or build our own; how functions and code boundaries are discovered (no release has symbols; the PS2 program is CodeWarrior-built, the arcade program is a raw SH-4 image).
-- **Host runtime:** language and core libraries for the native side (windowing, input, timing, file access).
-- **Graphics, audio and input:** the concrete approach for each once the base version and licence are settled. Sizing questions still open: how many VU1 microprograms the PS2 build uploads; whether the arcade build uses AICA DSP effects and PowerVR2 modifier volumes.
-- **Reading the disc:** whether the port reads the User-supplied Disc at runtime or extracts it once at setup, and how the disc is validated. For the arcade code this includes decrypting the user's cart dump (MAME's cipher is BSD-3) and replacing the cart file-read interface.
+- **Host runtime:** language and core libraries for the native side (windowing, input, timing, file access), once the recompiler is chosen.
 - **Rollback-ready runtime contract:** which of the 12 early requirements in the rollback findings become binding, and how snapshots meet the frame boundary, once the recompiler and runtime are known.
-- **Determinism details** for the chosen CPU (floating-point behaviour, compiler flags, sources of non-determinism).
+- **Determinism details for the PS2 Release:** the floating-point policy for the EE FPU and the VUs (non-IEEE), compiler flags, and other sources of non-determinism, once the recompiler is chosen.
 - **Build system and repository layout.**
-- **Contributor setup:** how a collaborator goes from a clean checkout plus their own disc to a running build.
+- **Contributor setup:** how a collaborator goes from a clean checkout plus their own US disc to a running build.
 
-_PT-BR: recompilador (usar um existente, estender ou construir; nenhuma versão tem símbolos); runtime nativo (linguagem e bibliotecas); gráfico, som e entrada (falta medir quantos microprogramas de VU1 o PS2 usa, e se o arcade usa efeitos de DSP do AICA e volumes modificadores do PowerVR2); leitura do disco (em tempo de execução ou extração inicial, e validação; no arcade, inclui descriptografar o dump do cartucho); contrato do runtime pronto para rollback (quais dos 12 requisitos viram regra); detalhes de determinismo; sistema de build e organização do repo; como um colaborador monta o ambiente com o próprio disco._
+_PT-BR: runtime nativo (linguagem e bibliotecas), depois de escolher o recompilador; contrato do runtime pronto para rollback (quais dos 12 requisitos viram regra); detalhes de determinismo do PS2 (ponto flutuante fora do padrão da EE e das VUs, opções de compilação); sistema de build e organização do repo; como um colaborador monta o ambiente com o próprio disco americano. O recompilador, o gráfico, o som e a leitura do disco viraram tickets (13 a 18)._
 
 ## Out of scope
 
@@ -65,3 +63,4 @@ Ruled beyond this map's destination; each may become its own future map. / _Fora
 - Porting Neo Geo Battle Coliseum fighters, including documenting how SNK adapted NGBC fighters for the PS2 Release (groundwork for that future map; study the NGBC release that matches the chosen Base Version) / _lutadores do NGBC, incluindo documentar como a SNK adaptou os lutadores do NGBC para a versão de PS2 (base para esse mapa futuro; estudar o NGBC da mesma plataforma da versão-base)_
 - Linux and macOS builds / _builds para Linux e Mac_
 - Arcade mode and every other mode beyond one Complete Fight / _modo arcade e outros modos além de uma luta completa_
+- PS2 editions other than the US one (Japanese, European, Korean): the port targets SLUS-21687 v1.00 only, per [Choose the base version](tickets/05-choose-base-version.md) / _edições de PS2 que não a americana (japonesa, europeia, coreana): o port mira só a SLUS-21687 v1.00_

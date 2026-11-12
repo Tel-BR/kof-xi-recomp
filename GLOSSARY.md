@@ -9,9 +9,9 @@ _PT-BR: um port nativo para PC de The King of Fighters XI, produzido pela recomp
 **Base Version**:
 The single original console release whose machine code the project recompiles.
 _Avoid_: source version, target version, original build
-Candidates: the PS2 Release or the Arcade Release.
+This project's Base Version is the PS2 Release (US edition).
 
-_PT-BR — **Versão-base**: a única versão original de console cujo código de máquina o projeto recompila._
+_PT-BR — **Versão-base**: a única versão original de console cujo código de máquina o projeto recompila. Neste projeto, a versão de PS2 (edição americana)._
 
 **Arcade Release**:
 The original KOF XI released by SNK Playmore on the Atomiswave arcade platform.
@@ -30,6 +30,12 @@ An unofficial fan-made disc that runs the Arcade Release's code on a Dreamcast; 
 _Avoid_: Dreamcast version, Dreamcast port
 
 _PT-BR — **Conversão para Dreamcast**: disco não oficial, feito por fãs, que roda o código da versão de arcade num Dreamcast; não é um lançamento à parte._
+
+**Arranged Option**:
+The PS2 Release's setting that, when on, brings its new stages, rearranged music and rebalancing to the whole game; when off, the game plays with the Arcade Release's balance, keeping the PS2-only fighters and Color Edit.
+_Avoid_: Arrange Mode, arranged version
+
+_PT-BR — **Opção Arranged**: ajuste da versão de PS2 que, ligado, traz as fases novas, as músicas rearranjadas e o balanceamento novo para o jogo inteiro; desligado, o jogo usa o balanceamento da versão de arcade, mantendo os lutadores exclusivos do PS2 e o Color Edit._
 
 **User-supplied Disc**:
 A disc image of the game that each user dumps from their own copy and provides locally; the project never distributes it.
