@@ -4,7 +4,7 @@ _Findings for [Assess carrying content across releases](../tickets/09-carry-cont
 
 ## Resumo em português
 
-- **O conteúdo corre num sentido só.** Tudo o que a versão de arcade tem de conteúdo o PS2 também tem. Segundo duas fontes, o PS2 traz até a opção de desligar o "Arrange" e jogar com o balanceamento original do arcade (falta você confirmar no menu de opções). O que o arcade tem de melhor é **técnico** (hardware mais simples, rollback que já funciona no Flycast), não conteúdo.
+- **O conteúdo corre num sentido só.** Tudo o que a versão de arcade tem de conteúdo o PS2 também tem. O dono confirmou: no PS2, o Arrange é um modo à parte, e o modo Arcade joga com o balanceamento original (com os lutadores exclusivos do PS2 também disponíveis). O que o arcade tem de melhor é **técnico** (hardware mais simples, rollback que já funciona no Flycast), não conteúdo.
 - **Base PS2 + vantagens do arcade:** quase nada a transportar. As vantagens do arcade não são arquivos que se copiam; são propriedades do port nativo, que precisam ser construídas de qualquer jeito. O custo está no próprio PS2, que é a base mais difícil de recompilar (tickets 01–03).
 - **Base arcade + conteúdo do PS2:** esforço **muito alto**. Os processadores são diferentes, então nenhum código do PS2 pode ser reaproveitado. Os modos Challenge, Edit e Team teriam de ser reescritos. Os lutadores extras, as fases 3D novas e os finais exigem entender formatos de dados não documentados dos dois lados e escrever conversores. Além disso, o ajuste dos controles do PS2, que você preferiu, se perderia.
 - **Medição local:** cerca de 1/6 dos trechos dos arquivos de lutadores do PS2 aparece idêntico, byte a byte, nos dados do cartucho, mas em pedaços pequenos e espalhados. As paletas de cor são ~90% idênticas. Cenários, menus e galeria: praticamente nada em comum. Conclusão: os mesmos materiais de origem, reembalados de outro jeito. Copiar não basta; é preciso converter.
@@ -23,13 +23,13 @@ From [compare-base-versions.md](compare-base-versions.md), the owner's hands-on 
 | 4 extra stages ("several new 3D backgrounds", per HG101) | PS2 only | Content: stage data + stage code |
 | Arranged soundtrack, extra endings | PS2 only | Content: audio (CRI ADX in AFS) + scenes |
 | More responsive controls (owner's experience; the port's controls "were made more responsive, based on feedback from the arcade", per Wikipedia) | PS2 only | Code (input handling and/or move data) |
-| "Arrange" balance changes | PS2 only, toggled in the options | Code + data |
-| Original arcade balance | Arcade; **also in the PS2 Release** when Arrange is turned off (TV Tropes: the PS2 version offers "an option to turn off the Arrange Mode"; HG101: the PS2 has "the original 'Arcade' as well as an 'Arrange' mode") | Code + data |
+| "Arrange" balance changes | PS2 only, in a separate Arrange mode | Code + data |
+| Original arcade balance | Arcade; **also in the PS2 Release**, in its Arcade mode (HG101: the PS2 has "the original 'Arcade' as well as an 'Arrange' mode"; confirmed by the owner) | Code + data |
 | Simpler hardware, lighter to run | Arcade | Technical, not content |
 | Working online rollback (Flycast GGPO; the owner tested it) | Arcade, under emulation | Technical, not content |
 | Hidden characters behind the time-release menu | Arcade | Same fighters the PS2 unlocks through play |
 
-**Fact to confirm (owner, in the PS2 options menu):** that turning Arrange off restores the arcade balance. Two secondary sources say so; no primary source was found.
+**Confirmed by the owner (2026-11-11):** on the PS2, Arrange is a separate mode. The Arcade mode plays without the Arrange balance changes, and the PS2-exclusive fighters are available in it too. So the PS2's Arcade mode is the arcade balance with a larger roster, not an exact copy of the Arcade Release.
 
 ## 2. What differs between the two releases' engines and data
 
@@ -71,7 +71,7 @@ Scale: **S** small (days), **M** medium (weeks), **L** large (months), **XL** re
 
 | Item | Effort | Why |
 |---|---|---|
-| Arcade content | none | Already in the PS2 Release (Arrange off; to confirm) |
+| Arcade content | none | Already in the PS2 Release (its Arcade mode; confirmed by the owner) |
 | Lighter to run | n/a | Not transferable: a native port is fast or slow on its own merits. The cost sits in the PS2 base itself (GS, VU1, IOP; tickets 01–02) |
 | Rollback | n/a | Not transferable: must be built into the port in either case (ticket 03). The arcade's head start is a working emulator precedent, not reusable code (Flycast is GPL) |
 
@@ -94,7 +94,7 @@ Content moves one way: from the PS2 Release to the arcade code, at a cost that a
 ## Sources
 
 - [The King of Fighters XI (Hardcore Gaming 101)](https://www.hardcoregaming101.net/king-of-fighters-xi/): PS2 extras, Arcade and Arrange modes, NGBC versions, loading
-- [The King of Fighters XI (TV Tropes)](https://www.tvtropes.org/pmwiki/pmwiki.php/VideoGame/TheKingOfFightersXI): Arrange toggle, recycled NGBC graphics, unlocks
+- [The King of Fighters XI (TV Tropes)](https://www.tvtropes.org/pmwiki/pmwiki.php/VideoGame/TheKingOfFightersXI): Arrange balance changes, recycled NGBC graphics, unlocks
 - [The King of Fighters XI (Wikipedia)](https://en.wikipedia.org/wiki/The_King_of_Fighters_XI): control changes in the port
 - [The King of Fighters XI (StrategyWiki)](https://strategywiki.org/wiki/The_King_of_Fighters_XI): PS2 modes
 - [The King of Fighters XI (Dream Cancel Wiki)](https://dreamcancel.com/wiki/The_King_of_Fighters_XI) and [Geese Howard (KOF:XI)](https://dreamcancel.com/wiki/Geese_Howard_(KOF:XI)): PS2-only bosses, reworked moveset
