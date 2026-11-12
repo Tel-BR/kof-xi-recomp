@@ -37,6 +37,7 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Survey graphics and audio reimplementation options and their licenses](tickets/02-graphics-audio-options.md): PS2 needs GS + VU1 microprograms + IOP/SPU2; arcade needs a PowerVR2 display-list renderer + AICA/ARM7 (done before by the SFA3 recomp); the most mature reusable parts are GPL, permissive ones exist but are less mature.
 - [Survey how static recomps can support rollback netplay](tickets/03-rollback-on-static-recomp.md): needs save/load/advance plus determinism; snapshot at one fixed frame point and copy only changed pages; pin floating point and keep host time out; permissive libraries (GekkoNet, GGPO); 12 early architecture requirements listed.
 - [Inspect the code structure of each candidate release](tickets/08-inspect-code-structure.md): no symbols anywhere; PS2 is one 2 MB CodeWarrior ELF with no overlays; the arcade cart is encrypted (MAME's BSD-3 cipher decrypts it) and holds a 1.19 MB SH-4 program; the Dreamcast disc is that same program with 754 bytes patched plus the cart data byte-identical.
+- [Compare both releases hands-on in emulators](tickets/10-hands-on-comparison.md): owner prefers the PS2 Release (more responsive controls; all PS2-only content is a must for the final port) but discards neither; decisive criteria are excellent performance with the NGBC fighters and rollback netplay; first build needs only the fight itself.
 
 ## Not yet specified
 
