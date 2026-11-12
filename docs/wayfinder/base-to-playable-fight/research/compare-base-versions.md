@@ -2,6 +2,10 @@
 
 Research ticket: "Compare PS2 and Dreamcast as the base version." This file gathers the facts; it does not make the decision. Researched 2026-11-11. No game data (disassembly, extracted assets, disc contents) appears here.
 
+> **Update, 2026-11-11 (after tickets 04 and 08):** two statements below are now superseded. (1) The owner **does** have a legal dump of his own arcade cartridge, matching MAME's `kofxi` set ([identify-disc-dumps.md](identify-disc-dumps.md)); Dreamcast risk 3 no longer applies. (2) The Dreamcast disc is **not** a loader plus a cart blob: `1ST_READ.BIN` is the decrypted arcade program with 754 bytes patched, and the cart data sits decrypted and byte-identical in track 3 ([inspect-code-structure.md](inspect-code-structure.md)).
+>
+> _PT-BR: duas afirmações abaixo ficaram superadas: o dono **tem** o dump do próprio cartucho (bate com o MAME), e o disco de Dreamcast **não** é carregador + bloco do cartucho: o `1ST_READ.BIN` é o programa do arcade com 754 bytes alterados, e os dados do cartucho estão idênticos na trilha 3._
+
 ## Resumo em português
 
 - **O "Dreamcast" não é um lançamento oficial.** A SNK nunca lançou KOF XI para Dreamcast. O disco que você tem é quase certamente a conversão caseira de 2020 (feita por "megavolt85") da versão de fliperama **Atomiswave**. Na prática, é o código do fliperama rodando no Dreamcast, que usa o mesmo processador e o mesmo chip gráfico.
