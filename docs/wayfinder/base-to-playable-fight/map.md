@@ -40,16 +40,17 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Compare both releases hands-on in emulators](tickets/10-hands-on-comparison.md): owner prefers the PS2 Release (more responsive controls; all PS2-only content is a must for the final port) but discards neither; decisive criteria are excellent performance with the NGBC fighters and rollback netplay; first build needs only the fight itself.
 - [Assess carrying content across releases](tickets/09-carry-content-across-releases.md): content flows one way (the PS2 has all the arcade content, including the arcade balance with the Arranged option off, confirmed by the owner); the arcade's strengths are technical and cannot be carried; rebuilding the PS2 content on the arcade code is large (modes rewritten, fighters and stages need undocumented formats and converters).
 - [Choose the base version](tickets/05-choose-base-version.md): the PS2 Release, US edition SLUS-21687 v1.00, for its content and the NGBC-derived fighters on their own engine; gives up the arcade's simpler hardware, Flycast-proven rollback and a shorter path to the first fight.
+- [Measure the PS2 Release's VU1 and GS usage](tickets/14-measure-vu1-gs-usage.md): no VU1 microprograms and no VU0 micro mode in anything captured (menus, a 2D fight, a 3D-stage fight); all drawing reaches the GS by PATH3 from the main CPU, with a small feature set (`Z32`, palette textures, two blend equations, no render-to-texture or readbacks) and heavy texture uploads; the graphics job is GS-only. PS2-exclusive fighters not yet checked.
 
 ## Not yet specified
 
 - **Host runtime:** language and core libraries for the native side (windowing, input, timing, file access), once the recompiler is chosen.
 - **Rollback-ready runtime contract:** which of the 12 early requirements in the rollback findings become binding, and how snapshots meet the frame boundary, once the recompiler and runtime are known.
-- **Determinism details for the PS2 Release:** the floating-point policy for the EE FPU and the VUs (non-IEEE), compiler flags, and other sources of non-determinism, once the recompiler is chosen.
+- **Determinism details for the PS2 Release:** the floating-point policy for the EE FPU and the VU0 macro instructions (both non-IEEE; VU1 runs no microcode in what was measured), compiler flags, and other sources of non-determinism, once the recompiler is chosen.
 - **Build system and repository layout.**
 - **Contributor setup:** how a collaborator goes from a clean checkout plus their own US disc to a running build.
 
-_PT-BR: runtime nativo (linguagem e bibliotecas), depois de escolher o recompilador; contrato do runtime pronto para rollback (quais dos 12 requisitos viram regra); detalhes de determinismo do PS2 (ponto flutuante fora do padrão da EE e das VUs, opções de compilação); sistema de build e organização do repo; como um colaborador monta o ambiente com o próprio disco americano. O recompilador, o gráfico, o som e a leitura do disco viraram tickets (13 a 18)._
+_PT-BR: runtime nativo (linguagem e bibliotecas), depois de escolher o recompilador; contrato do runtime pronto para rollback (quais dos 12 requisitos viram regra); detalhes de determinismo do PS2 (ponto flutuante fora do padrão da EE e das instruções vetoriais da VU0, opções de compilação); sistema de build e organização do repo; como um colaborador monta o ambiente com o próprio disco americano. O recompilador, o gráfico, o som e a leitura do disco viraram tickets (13 a 18)._
 
 ## Out of scope
 
