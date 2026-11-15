@@ -66,3 +66,15 @@ The emulator running the Base Version that serves as the ground truth for how th
 _Avoid_: oracle, golden emulator
 
 _PT-BR — **Emulador de referência**: o emulador rodando a versão-base que serve de gabarito para como o port deve se comportar._
+
+**Reference Scenario**:
+A short play session on the Base Version, recorded once in the Reference Emulator as button presses only, that anyone with their own disc can replay to produce reference data.
+_Avoid_: test case, demo, movie
+
+_PT-BR — **Cenário de referência**: sessão curta de jogo na versão-base, gravada uma vez no emulador de referência só com os apertos de botão, que qualquer pessoa com o próprio disco pode reproduzir para gerar dados de referência._
+
+**Reference Table**:
+The hashes the Reference Emulator produced at marked frames of a Reference Scenario, together with the emulator version and BIOS used; contains no game data, so it may live in git.
+_Avoid_: golden file, snapshot
+
+_PT-BR — **Tabela de referência**: os hashes que o emulador de referência produziu em quadros marcados de um cenário de referência, junto com a versão do emulador e o BIOS usados; não contém dados do jogo, então pode ficar no git._
