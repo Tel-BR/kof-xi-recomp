@@ -1,0 +1,5 @@
+# One-Time Disc Extraction and Executable Hashing
+
+The port extracts the ~1.17 GB of required game assets from a user-supplied PS2 ISO once during setup, completely omitting the 1.26 GB dummy DAT files (`KOF_0000.DAT` and `KOF_0001.DAT`) to save disk space and provide 0 ms deterministic read latency for rollback. Integrity is verified by checking the SHA-1 of the extracted `SLUS_216.87` executable rather than whole-disc hashing, ensuring compatibility even if a user's disc dump contains read errors in dead dummy padding.
+
+_PT-BR: O port extrai os ~1.17 GB de assets reais de uma ISO de PS2 fornecida pelo usuário uma única vez na instalação, ignorando totalmente os arquivos DAT de preenchimento (`KOF_0000.DAT` e `KOF_0001.DAT`, 1.26 GB) para economizar armazenamento e garantir leituras instantâneas sem travar o rollback. A integridade é validada conferindo o SHA-1 do executável `SLUS_216.87` extraído em vez do hash da ISO inteira, garantindo funcionamento mesmo se a imagem do usuário tiver setores ilegíveis no enchimento descartável._
