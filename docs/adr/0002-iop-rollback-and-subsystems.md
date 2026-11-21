@@ -1,0 +1,5 @@
+# IOP Subsystem Rollback Contract: Forward Audio, Native Input, Cached Disc
+
+To satisfy rollback netplay determinism without audio distortion or I/O hitches, controller input (`PADMAN`) is replaced with a single native frame-boundary input injection point, disc reads are served synchronously from memory/RAM cache, and emulated IOP sound modules (`CRI_ADX`/`LIBSD`) run forward asynchronously without rollback. Rewinding audio state during frame predictions would cause audible pops and stutter, so audio commands are dispatched only on final displayed frames.
+
+_PT-BR: Para garantir determinismo de rollback netplay sem distorção sonora ou travamentos de disco, a leitura de controles (`PADMAN`) é substituída por um ponto único de injeção nativa na fronteira de cada quadro, leituras de disco são atendidas em cache na memória RAM e o som emulado no IOP (`CRI_ADX`/`LIBSD`) corre sempre para frente sem retroceder no rollback. Rebobinar áudio geraria estalos e ruídos, portanto comandos sonoros só são disparados no quadro final exibido._
