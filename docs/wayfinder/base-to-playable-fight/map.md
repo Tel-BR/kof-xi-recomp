@@ -50,6 +50,7 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Decide how GS and VU1 graphics are reproduced](tickets/16-gs-vu1-approach.md): translate GS PATH3 command stream via PS2Recomp's shader backend (Vulkan/Direct3D), completely outside rollback savestate memory to allow draw suppression during frame rewinds; omit VU1 emulation with an assertion guard on unexpected VU1 uploads.
 - [Decide how the IOP side is reproduced](tickets/17-iop-approach.md): hybrid approach with native single-point input injection for GGPO rollback and RAM-cached disc reads, while emulated IOP audio (CRI ADX/LIBSD) runs forward asynchronously without rollback to prevent audio stutter and clicks.
 - [Get a Redump-verified PS2 image](tickets/11-redump-verified-ps2.md): ruled unnecessary; the ~800 zeroed sectors causing the whole-disc hash mismatch reside exclusively inside dead dummy padding (`KOF_0001.DAT`), while the game executable (`SLUS_216.87`) and assets in `\DATA\` match Redump byte-for-byte with zero errors.
+- [Prototype the reference capture on one scenario](tickets/19-prototype-reference-capture.md): verified deterministic input replay on PCSX2 v2.8.2 over 11,782 frames (ticket19.p2m2); confirmed frame-exact checkpointing via .p2m2 truncation (606-byte header with total_frames at offset 561, 36 bytes/frame payload); automatic pause at replay end ties GS dumps and savestates to exact frame targets.
 
 ## Not yet specified
 
