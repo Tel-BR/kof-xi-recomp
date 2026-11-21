@@ -49,6 +49,7 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Decide whether to relicense to GPL](tickets/06-gpl-relicense.md): relicense the project to GPL-3.0, mandated by building on the PS2Recomp fork and unlocking the reuse of mature GPL-licensed PS2 emulation components (GS, SPU2, IOP) while keeping all port code open.
 - [Decide how GS and VU1 graphics are reproduced](tickets/16-gs-vu1-approach.md): translate GS PATH3 command stream via PS2Recomp's shader backend (Vulkan/Direct3D), completely outside rollback savestate memory to allow draw suppression during frame rewinds; omit VU1 emulation with an assertion guard on unexpected VU1 uploads.
 - [Decide how the IOP side is reproduced](tickets/17-iop-approach.md): hybrid approach with native single-point input injection for GGPO rollback and RAM-cached disc reads, while emulated IOP audio (CRI ADX/LIBSD) runs forward asynchronously without rollback to prevent audio stutter and clicks.
+- [Get a Redump-verified PS2 image](tickets/11-redump-verified-ps2.md): ruled unnecessary; the ~800 zeroed sectors causing the whole-disc hash mismatch reside exclusively inside dead dummy padding (`KOF_0001.DAT`), while the game executable (`SLUS_216.87`) and assets in `\DATA\` match Redump byte-for-byte with zero errors.
 
 ## Not yet specified
 

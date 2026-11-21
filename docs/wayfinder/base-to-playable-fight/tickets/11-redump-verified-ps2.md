@@ -2,8 +2,8 @@
 id: 11
 title: Get a Redump-verified PS2 image
 type: task
-status: open
-assignee:
+status: closed
+assignee: Tel-BR
 blocked_by: [05]
 ---
 
@@ -18,3 +18,29 @@ _PT-BR: a imagem de PS2 do dono é a versão certa, mas o hash da imagem inteira
 - 2026-11-11, from [Inspect the code structure of each candidate release](08-inspect-code-structure.md): the likely cause of the mismatch is read errors. `KOF_0001.DAT`, otherwise high-entropy from start to end, contains 42 runs of all-zero sectors (800 sectors), each 16 or 32 sectors long and aligned to 16 sectors, between sectors ~1.09 and ~1.17 million, near the outer edge. A DVD error-correction block is 16 sectors, so this is the usual mark of unreadable blocks that the dumping tool filled with zeros. When re-dumping, watch that area: clean the disc and use a tool that reports read errors. The main program is not affected (its CRC matches PCSX2's).
 
   _PT-BR: a causa provável são erros de leitura: o `KOF_0001.DAT` tem 42 trechos zerados em blocos de 16 setores (o bloco de correção de erro do DVD), perto da borda do disco. Ao refazer o dump, atenção a essa região: limpar o disco e usar uma ferramenta que avise dos erros. O programa principal não foi afetado._
+
+## Resolution
+
+Ruled unnecessary and closed on 2026-11-21 by the repo owner (Tel-BR).
+
+**Physical redumping is not required; the owner's existing disc image carries 100% intact game code and assets.**
+
+Findings from [Find out what the two big PS2 DAT files hold](12-ps2-big-dat-files.md) demonstrated that:
+1. The ~800 zeroed sectors that cause the whole-disc hash divergence from Redump disc 5234 reside exclusively inside `KOF_0001.DAT` between sectors 1,090,000 and 1,170,000.
+2. `KOF_0001.DAT` (and `KOF_0000.DAT`) is pure dummy padding placed at the outer radius of the DVD during mastering to meet physical pressing specifications; it contains no game data, has zero code references, is excluded by loop bounds (`slti reg, 684`) in all ELF file search routines, and was never accessed in emulator savestates.
+3. The main executable (`SLUS_216.87`), all IOP modules, and all game assets in `\DATA\` match Redump byte-for-byte and are completely free of read errors.
+
+Therefore, the unreadable sectors have zero impact on the quality or correctness of the recompilation project, and obtaining a new Redump-matching whole-disc image is unnecessary.
+
+---
+
+_PT-BR: considerado desnecessário e fechado em 21/11/2026 pelo dono do repositório (Tel-BR)._
+
+_**O redump físico não é necessário; a imagem de disco existente do dono possui código e assets 100% íntegros.**_
+
+_Os resultados do ticket 12 ([Descobrir o que os dois arquivos DAT do PS2 contêm](12-ps2-big-dat-files.md)) demonstraram que:_
+1. _Os ~800 setores zerados que causavam a divergência de hash em relação ao Redump disco 5234 estão exclusivamente dentro do arquivo `KOF_0001.DAT`._
+2. _O arquivo `KOF_0001.DAT` (assim como o `KOF_0000.DAT`) é mero enchimento físico (*dummy padding*) prensado na borda do disco para atender a especificações da fábrica de DVD; não contém dados do jogo, não possui referências no código, é excluído pelos laços de busca no executável e nunca é lido pela emulação._
+3. _O executável principal (`SLUS_216.87`), todos os módulos de IOP e todos os assets em `\DATA\` batem perfeitamente com o Redump, byte a byte, livres de erros de leitura._
+
+_Portanto, esses setores ilegíveis têm impacto nulo na qualidade e fidelidade do projeto de recompilação, tornando dispensável qualquer repetição do dump físico._
