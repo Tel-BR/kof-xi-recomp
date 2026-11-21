@@ -1,0 +1,5 @@
+# Rollback State Boundaries and Character Unlock Persistence
+
+Rollback savestates and verification diffs encompass only game-owned EE RAM (`0x100000` to `0x01E2D480`), EE Scratchpad (`0x70000000`), and CPU/VU0 registers, excluding the bottom 1 MB kernel area to eliminate host noise. SPU2 audio RAM and GS video memory are excluded because sound runs forward and rendering is outside the simulation. The user-configurable "Unlock All Characters" toggle modifies EE RAM flags, naturally serializing through rollback so online peers remain perfectly synchronized.
+
+_PT-BR: Os savestates de rollback e a verificação do oráculo abrangem apenas a RAM da EE do jogo (`0x100000` a `0x01E2D480`), Scratchpad da EE (`0x70000000`) e registradores da CPU/VU0, excluindo o primeiro 1 MB de kernel para evitar ruídos. A memória de som SPU2 e de vídeo GS são excluídas porque o áudio corre para frente e a renderização fica fora da simulação. O seletor configurável de "Desbloquear Todos os Personagens" atua diretamente na RAM da EE, serializando naturalmente no rollback para manter os jogadores perfeitamente sincronizados no netplay._

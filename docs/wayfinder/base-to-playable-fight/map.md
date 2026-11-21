@@ -1,7 +1,7 @@
 ---
 label: wayfinder:map
 title: "Map: from disc to a playable fight / Do disco a uma luta jogável"
-status: open
+status: closed
 ---
 
 # Map: from disc to a playable fight
@@ -51,6 +51,8 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Decide how the IOP side is reproduced](tickets/17-iop-approach.md): hybrid approach with native single-point input injection for GGPO rollback and RAM-cached disc reads, while emulated IOP audio (CRI ADX/LIBSD) runs forward asynchronously without rollback to prevent audio stutter and clicks.
 - [Get a Redump-verified PS2 image](tickets/11-redump-verified-ps2.md): ruled unnecessary; the ~800 zeroed sectors causing the whole-disc hash mismatch reside exclusively inside dead dummy padding (`KOF_0001.DAT`), while the game executable (`SLUS_216.87`) and assets in `\DATA\` match Redump byte-for-byte with zero errors.
 - [Prototype the reference capture on one scenario](tickets/19-prototype-reference-capture.md): verified deterministic input replay on PCSX2 v2.8.2 over 11,782 frames (ticket19.p2m2); confirmed frame-exact checkpointing via .p2m2 truncation (606-byte header with total_frames at offset 561, 36 bytes/frame payload); automatic pause at replay end ties GS dumps and savestates to exact frame targets.
+- [Decide how the port reads the User-supplied Disc](tickets/18-read-user-disc.md): extract ~1.17 GB of real game assets once at setup from a user-supplied ISO, verifying the SHA-1 of the extracted SLUS_216.87 executable rather than the whole ISO, and completely discarding the 1.26 GB dummy DAT files to save storage and ensure 0 ms deterministic read latency for rollback.
+- [Decide which memory regions count as game state](tickets/21-game-state-regions.md): game state is defined as game EE RAM (0x100000 to 0x01E2D480), EE Scratchpad (0x70000000), and CPU/VU0 registers; kernel memory (0x000000–0x0FFFFF), SPU2 sound RAM, and GS VRAM are excluded; character unlocks reside in EE RAM and synchronize naturally under rollback, supporting a default "Unlock All Characters" toggle.
 
 ## Not yet specified
 
