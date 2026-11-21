@@ -23,10 +23,10 @@ _PT-BR: um plano decidido e escrito para um build nativo de Windows do KOF XI qu
 - **Hard rule:** no game data anywhere: not in tickets, research notes or commits (see `AGENTS.md`). Disc hashes are fine; disassembly and assets are not.
 - **Language:** ticket titles in English; bodies bilingual (English, then Brazilian Portuguese).
 - **Platform:** Windows first, using cross-platform libraries so Linux/Mac stay possible later at no cost now.
-- **Licence:** currently MIT. The owner is willing to relicense to GPL if reusing emulator code pays off (see the relicensing ticket).
+- **Licence:** GPL-3.0, per [Decide whether to relicense to GPL](tickets/06-gpl-relicense.md).
 - **Planning only:** this map produces decisions, not code.
 
-_PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; colaboradores comentam. Cada opção vem com causas e consequências em linguagem simples, e as perguntas usam a ferramenta interativa. Nada dos jogos em lugar nenhum (hashes de disco podem). Títulos em inglês, corpo bilíngue. Windows primeiro, com bibliotecas multiplataforma. Licença MIT hoje, aceitando GPL se reaproveitar código de emulador compensar. Este mapa produz decisões, não código._
+_PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; colaboradores comentam. Cada opção vem com causas e consequências em linguagem simples, e as perguntas usam a ferramenta interativa. Nada dos jogos em lugar nenhum (hashes de disco podem). Títulos em inglês, corpo bilíngue. Windows primeiro, com bibliotecas multiplataforma. Licença GPL-3.0, conforme o ticket 06. Este mapa produz decisões, não código._
 
 ## Decisions so far
 
@@ -46,6 +46,7 @@ _PT-BR: o dono do repositório (Tel-BR) responde todos os tickets de conversa; c
 - [Decide the recompiler](tickets/15-decide-recompiler.md): build on a fork of PS2Recomp (`ran-j/PS2Recomp`); translation is 100% complete with 0 unhandled instructions in real code; a fork enables rollback snapshot hooks, differential dirty-page tracking and deterministic time; headless Ghidra resolves function discovery (~921 missed pointer functions); relicenses the port to GPL-3.0.
 - [Survey how to compare audio against the Reference Emulator](tickets/20-audio-comparison.md): sample-exact audio hashing is infeasible due to clock jitter and DSP rounding; recommends a tiered strategy combining frame-exact IOP/SPU2 command logging (deterministic hashes in git Reference Tables for daily regression), automated DSP waveform comparison with tolerance (cross-correlation and STFT spectral distance for audio engine milestones), an internal PCSX2 devbuild for register debugging, and human listening as milestone sign-off across all 4 Reference Scenarios.
 - [Find out what the two big PS2 DAT files hold](tickets/12-ps2-big-dat-files.md): KOF_0000.DAT and KOF_0001.DAT (~630 MB each, 52% of disc) are pure dummy padding placed at outer sectors to meet DVD mastering radius specs; the ELF's static file table ends at these files and its lookup functions loop with slti reg, 684 (excluding KOF_0001.DAT), with all lookups prepending \DATA\ (excluding root-level KOF_0000.DAT); zero code references, zero sceCdRead calls, and zero live memory hits across 7 PCSX2 savestates; the port completely ignores both files, real game assets are ~1.17 GB, and the Redump hash mismatch from zeroed sectors in KOF_0001.DAT does not affect game data.
+- [Decide whether to relicense to GPL](tickets/06-gpl-relicense.md): relicense the project to GPL-3.0, mandated by building on the PS2Recomp fork and unlocking the reuse of mature GPL-licensed PS2 emulation components (GS, SPU2, IOP) while keeping all port code open.
 
 ## Not yet specified
 
