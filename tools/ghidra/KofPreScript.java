@@ -3,7 +3,7 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.mem.MemoryBlock;
 
 public class KofPreScript extends GhidraScript {
-    private static final long CODE_END = 0x00280830L;
+    private static final long CODE_END = 0x00282000L;
 
     @Override
     public void run() throws Exception {
@@ -24,7 +24,7 @@ public class KofPreScript extends GhidraScript {
             dataBlock.setRead(true);
             dataBlock.setWrite(true);
             dataBlock.setExecute(false);
-            println("Memory blocks configured: .text [0x100000-0x28082F] RX, .data [0x280830-0x2F13FF] RW");
+            println("Memory blocks configured: .text [0x100000-0x281FFF] RX, .data [0x282000-0x2F13FF] RW");
         } else {
             println("Block already split or not found.");
         }

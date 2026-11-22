@@ -6,7 +6,7 @@ Automates headless Ghidra analysis of SLUS_216.87 with the Emotion Engine (R5900
 processor module to discover complete function symbols and boundaries for PS2Recomp.
 
 Specifically resolves the function discovery gap from Ticket 13:
-- Delimits real code boundary (0x100008 - 0x280830) from data tail (0x280830 - 0x2F1400)
+- Delimits real code boundary (0x100008 - 0x282000) from data tail (0x282000 - 0x2F1400)
 - Recovers pointer-only functions (including stall target 0x1FB188 at frame 439)
 - Excludes the 18 data-as-code pseudo-functions from the data tail
 - Exports ready-to-use symbols.toml and symbols.csv for PS2Recomp
@@ -27,7 +27,7 @@ logger = logging.getLogger("export_symbols")
 # Boundaries and targets for SLUS-21687 v1.00
 EXPECTED_SLUS_SHA1 = "133f8c56283f0e255be995e894a3a7e6fe0c7b24"
 CODE_START_ADDR = 0x00100008
-CODE_END_ADDR = 0x00280830
+CODE_END_ADDR = 0x00282000
 DATA_END_ADDR = 0x002F1400
 TARGET_STALL_ADDR = 0x001FB188  # Frame 439 indirect call target
 
@@ -181,8 +181,8 @@ class SymbolExporter:
         Checks:
         1. Both symbols.toml and symbols.csv exist and are non-empty.
         2. Target stall function 0x1FB188 is present.
-        3. All symbols are within real code boundaries (0x100008 - 0x280830).
-        4. No function starts or ends in the data tail (0x280830 - 0x2F1400).
+        3. All symbols are within real code boundaries (0x100008 - 0x282000).
+        4. No function starts or ends in the data tail (0x282000 - 0x2F1400).
         5. Function count is coherent (>= 4000 functions recovered).
         """
         if not self.output_csv.exists():
