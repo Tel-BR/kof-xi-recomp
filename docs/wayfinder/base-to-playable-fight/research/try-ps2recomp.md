@@ -38,6 +38,16 @@ The stall is the symptom of a gap the analyzer cannot see on this executable. A 
 
 So, for [Decide the recompiler](../tickets/15-decide-recompiler.md): the instruction translation is not the problem (all real code translates, and the output compiles), and neither is the toolchain (four small MinGW workarounds). What decides how far PS2Recomp gets is **getting complete function boundaries**: a Ghidra export (the path the README recommends and this run did not try), a CodeWarrior-aware boundary pass, or both, plus a clean cut between code and data so the 18 data-tail entries never reach the recompiler.
 
+## Speed and audio (added 2026-11-22)
+
+The first run did not measure speed or check for sound. Both were measured later on the build that reaches the menus; details in [diagnose-runtime-performance-audio.md](diagnose-runtime-performance-audio.md).
+
+- **Speed:** 17 of 60 vsyncs per second as built, all on one host thread. With the IOP's two faults removed in a probe, 31–35. What remains is the software GS (87–92% of the thread, ~27 ms per vsync, a ceiling near 37 vsyncs/s); there is no other limiter. The earlier "second limiter" (~26 vsyncs/s with the thread idle 31%) was the measuring script itself: its output redirection made each log write block.
+- **Audio:** none. The CRI ADX driver's output setup fails (16 times per 30 s), the host audio backend receives nothing, and the SPU2 is not emulated.
+- **Feedback loop:** `tools/runtime/run_native.py --headless --timeout 30 --stdout … --stderr …`, then `tools/runtime/speed_report.py` on the two files.
+
+_PT-BR (velocidade e áudio, acrescentado em 22/11/2026): a primeira rodada não mediu velocidade nem conferiu o som. Medido depois no build que chega aos menus: 17 de 60 vsyncs por segundo como está, tudo numa thread; sem os dois defeitos do IOP, 31–35; o que sobra é o GS por software (87–92% da thread, ~27 ms por vsync, teto perto de 37), sem outro limitador. O "segundo limitador" (~26 com a thread parada 31%) era o próprio script de medição, cujo redirecionamento fazia cada escrita de log travar. Áudio: nenhum (a saída do CRI ADX falha, o áudio do PC não recebe nada e o SPU2 não é emulado). Loop: `run_native.py` gravando em arquivo e depois `speed_report.py`._
+
 ## PT-BR
 
 - **Montagem:** PS2Recomp no commit `e5636981…` (22/10/2026). Executável americano do disco do dono. Descoberta de funções pelo caminho embutido do analisador (varredura de `JAL` mais o banco de assinaturas do SDK da Sony); o caminho recomendado para jogos sem símbolos, exportar do Ghidra, **não** foi testado porque o Ghidra não está instalado. Compilado com clang (MinGW), já que o MSVC não está na máquina; foram precisos quatro ajustes locais pequenos (conflito de nomes entre raylib e Windows, caminho de include, opção SSE4.1, e um gancho de 6 linhas para indicar a imagem do disco), nenhum no recompilador nem no código gerado.

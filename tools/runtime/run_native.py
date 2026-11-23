@@ -9,6 +9,10 @@ Supports:
 - Headless execution (--headless)
 - Unthrottled simulation (--unthrottled)
 - Timed runs (--timeout <seconds>)
+- Another binary, such as a diagnostic build (--exe <path>)
+
+For speed measurements capture output with --stdout/--stderr (direct file handles)
+and read it with tools/runtime/speed_report.py.
 """
 
 import argparse
@@ -50,6 +54,12 @@ def main():
         help="Run unthrottled without 60 FPS frame pacing limit",
     )
     parser.add_argument(
+        "--exe",
+        type=str,
+        default=None,
+        help="Run this binary instead of private/kof_xi_native.exe (e.g. a diagnostic build)",
+    )
+    parser.add_argument(
         "--stdout",
         type=str,
         default=None,
@@ -68,9 +78,11 @@ def main():
     elf_path = (repo_root / "private/extracted/SLUS_216.87").resolve()
     exe_path = (repo_root / "private/kof_xi_native.exe").resolve()
 
+    if args.exe:
+        exe_path = (repo_root / args.exe).resolve()  # an absolute --exe path replaces repo_root
     if not exe_path.exists():
         fallback_exe = repo_root / "private/tools/PS2Recomp/out/build/ps2xRuntime/ps2EntryRunner.exe"
-        if fallback_exe.exists():
+        if not args.exe and fallback_exe.exists():
             exe_path = fallback_exe
         else:
             print(f"Error: Native binary not found at {exe_path}", file=sys.stderr)

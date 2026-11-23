@@ -2,8 +2,8 @@
 id: 13
 title: Try PS2Recomp on the PS2 executable
 type: task
-status: open
-assignee: 
+status: closed
+assignee: claude
 blocked_by: []
 research: ../research/try-ps2recomp.md
 ---
@@ -36,3 +36,16 @@ Full measurements: [research/try-ps2recomp.md](../research/try-ps2recomp.md). Co
 - **Takeaway for [Decide the recompiler](15-decide-recompiler.md):** translation and compilation are not the obstacle; **complete function boundaries and a clean code/data split are**.
 
 _PT-BR: PS2Recomp no commit `e5636981…`, com a descoberta de funções embutida do analisador (a exportação do Ghidra, que o README recomenda, não foi testada). O analisador achou 3.458 funções, mas o executável deve ter umas 5.000: das 964 funções guardadas como ponteiros, 921 (96%) ficaram de fora. As 12.769 instruções não tratadas estão todas em 18 "funções" que são dados lidos como código, no fim da imagem; no código real, nenhuma. Pulando essas 18, tudo compila e linka sem erro. O jogo inicia, carrega os módulos do IOP e o driver de áudio, desenha por uns 8 segundos e então trava numa chamada para uma função que o analisador não achou; não fecha e não chega a menu. Para o ticket 15: o problema não é traduzir nem compilar, é achar todas as funções e separar código de dados._
+
+## Resolution (2026-11-22)
+
+Re-resolved after the reopening. Details: [research/diagnose-runtime-performance-audio.md](../research/diagnose-runtime-performance-audio.md), section "Second pass for ticket 13"; summary added to [research/try-ps2recomp.md](../research/try-ps2recomp.md). Same build as the diagnosis: PS2Recomp `e563698` plus the uncommitted local changes in `private/tools/PS2Recomp` that get it to the menus (EE scheduler and kernel stubs, pad and memory card, and the function table generated from the Ghidra export), Release `-O3` with ThinLTO.
+
+- **Feedback loop, now in the repo:** `tools/runtime/run_native.py --headless --timeout 30 --stdout <file> --stderr <file>` (add `--unthrottled`, or `--exe` for a diagnostic build), then `tools/runtime/speed_report.py <stdout> <stderr>`, which prints the median vsyncs per second, the count of CRI ADX output failures and `GREEN` at 57 or more.
+- **Speed:** as built, **17** of 60 vsyncs per second, with the frame limiter on or off. With the IOP's two faults removed in a temporary probe, **31–35** (limiter on or off makes no real difference).
+- **Audio:** **none.** The CRI ADX output setup fails 16 times per 30 s run, the host audio backend receives 0 calls, and the SPU2 is not emulated.
+- **The second limiter was the old measuring script.** It captured output through PowerShell's `Start-Process` redirection, under which every log write blocked: 30% of the game thread's samples were inside `NtWriteFile`, against 1% when writing straight to files (24 against 34 vsyncs/s on the same probe build). The scheduler itself never waits on host time during play (0% idle wait and 0% frame pacing), so neither suspect (the VBlank wake of EE thread 1, `dbuff err!!`) holds.
+- **What is left is the GS.** With the IOP fixed, the software GS takes 87–92% of the busy thread (about 27 ms per vsync, a ceiling near 37 vsyncs/s), the IOP about 3%, the rest 5–9%. The recompiled game code is light: about 98% of EE cycles pass with every EE thread waiting.
+- **Inputs for the reopened tickets (not decisions):** for [16](16-gs-vu1-approach.md), the current CPU GS needs about 27 ms per vsync against a 16.7 ms budget; for [17](17-iop-approach.md), sound needs the ADX output fixed, the sound DMA timed correctly and somewhere for the sound to go (an SPU2, or CRI's PCM output played on the host, as other ports did). Play builds should turn the log options off: through a console they may still cost speed (not measured).
+
+_PT-BR: resolvido de novo depois da reabertura. Loop de medição agora no repositório (`run_native.py` gravando a saída em arquivo e `speed_report.py`). Velocidade: 17 de 60 vsyncs por segundo como está; sem os dois defeitos do IOP, 31–35. Áudio: nenhum (a saída do CRI ADX falha, o áudio do PC não recebe nada, o SPU2 não é emulado). O "segundo limitador" era o próprio script de medição antigo: o redirecionamento do `Start-Process` fazia cada escrita de log travar (30% das amostras em `NtWriteFile`, contra 1% gravando direto em arquivo); o escalonador nunca espera tempo real durante o jogo, então nenhum dos suspeitos se confirma. O que sobra é o GS por software: 87–92% da thread, ~27 ms por vsync, teto perto de 37 vsyncs/s; o código do jogo é leve. Dados para os tickets reabertos (não são decisões): no 16, o GS atual leva ~27 ms por vsync para um orçamento de 16,7 ms; no 17, para haver som é preciso corrigir a saída do ADX, acertar o tempo da DMA de som e ter para onde mandar o som (um SPU2, ou o PCM do CRI tocado no PC, como outros ports fizeram). Builds de jogo devem desligar os logs._
