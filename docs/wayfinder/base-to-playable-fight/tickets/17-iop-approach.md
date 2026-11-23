@@ -2,9 +2,10 @@
 id: 17
 title: Decide how the IOP side is reproduced
 type: grilling
-status: open
-assignee: 
+status: closed
+assignee: Tel-BR
 blocked_by: [06, 15]
+research: ../research/iop-audio-options.md
 ---
 
 ## Question
@@ -66,3 +67,45 @@ _Decisões concretas por subsistema:_
 3. _**Leitura de disco (`CDVD`): interceptada e servida em memória (RAM/SSD).** Nenhuma leitura de disco pode travar a simulação durante um quadro recalculado. Comprovado no ticket 12 que os dados reais têm ~1.17 GB e os arquivos DAT são dispensáveis, todos os arquivos da luta ficam pré-carregados em cache de memória com latência zero e determinismo total._
 4. _**Memory Card (`MCMAN` / `MCSERV`): stubs nativos no PC.** Salva dados em arquivos comuns no PC sem emular circuitos de cartão de memória._
 5. _**Monitoramento e contingência:** conforme orientação do dono, o comportamento em jogo será monitorado; caso surjam problemas de sincronia entre EE e IOP, avalia-se a substituição do CRI ADX por um decodificador nativo no PC._
+
+## Resolution (2026-11-23)
+
+Re-decided on 2026-11-23 by the repo owner (Tel-BR), with rollback netplay as the focus. Evidence: [research/iop-audio-options.md](../research/iop-audio-options.md).
+
+**PCSX2-matched SPU2 from the PS2Recomp-Fixer fork inside our `ps2xIOP`, with the original sound modules, clocked by emulated IOP time and running on the game thread. Controller and memory card stay native on the EE side; the controller is read once per frame for both ports.**
+
+1. **Sound: the Fixer's SPU2 as a single piece** (`iop_spu2.{h,cpp}`, `iop_spu2_gauss.h`, ~2,000 lines, GPL-3.0; based on upstream [PR #308](https://github.com/ran-j/PS2Recomp/pull/308)) brought into our fork of `e563698`, without its diagnostic hooks, together with its wiring in `iop_memory`, `iop_emulator` and the IOP host output hook. The original `LIBSD`, `SDRDRV` and `CRI_ADXI` keep running on the emulated IOP and produce music, voices and sound effects as on the PS2, with PCSX2's sound behaviour, which also serves the audio comparison of [ticket 20](20-audio-comparison.md).
+2. **Following from item 1, the Fixer's IOP fixes that this sound path needs:** AutoDMA completes at playback speed (fault 2), IOP sysclib's `look_ctype_table` returns real flags (a candidate cause of fault 1, the failed ADX output setup: in the Fixer it made `CRI_ADXI` ignore its start arguments; to be confirmed when it lands), no DMA completion or thread switch inside `CpuSuspendIntr` sections, same-priority IOP threads not preempting each other, and `sceSifGetOtherData`.
+3. **Following from item 1, sound effects reach the IOP:** the EE's `sceSdRemote`, `sceSdRemoteInit` and `sceSdTransToIOP` stop being replaced by host stubs, so the recompiled library sends its commands to `SDRDRV.IRX`.
+4. **Clock and host output:** the SPU2 advances by IOP cycles (768 per 48 kHz sample), which follow the EE's emulated cycles; nothing in the IOP reads host time. The host plays a one-way queue and may resample or drop audio to follow the sound card without touching the simulation. Upstream PR #307 (IOP time following the host clock) and the Fixer's real-time IOP baseline are not taken.
+5. **IOP thread: the game thread.** With both faults fixed the IOP measured about 3% of the thread, a lower bound: that probe had no SPU2 mixing and no ADX streaming; a thread of its own would add locks and let the EE see the IOP at points that vary from run to run. To revisit only if a measurement shows the game thread is short of time once the GS has its own thread.
+6. **Controller: native, read once per frame.** The game's `scePad*` functions stay host stubs. The runtime takes one snapshot of both ports per frame at the frame boundary and every `scePadRead` in that frame returns it, by port (players 1 and 2 separate). This is the single input entry point rollback needs. `SIO2MAN` and `PADMAN` are no longer loaded into the IOP. Vibration is left for later.
+7. **Memory card: native folders, as today.** The game's `sceMc*` functions stay host stubs writing into `mc0/` and `mc1/`. `MCMAN` and `MCSERV` are no longer loaded into the IOP.
+8. **Disc reads:** unchanged from the first resolution and [ticket 18](18-read-user-disc.md): served from the extracted files, never blocking a simulated frame.
+
+**Consequences and follow-ups (not separate decisions):**
+
+- Audio stays outside the rollback state and runs forward only ([ticket 21](21-game-state-regions.md)). The first resolution's rule carries over: sound requests made by resimulated frames are not sent to the IOP, and the IOP does not advance with the EE cycles of resimulated frames (otherwise it would run twice). Those frames still read IOP replies (ADX status, RPC results) and must see what the game saw the first time; how that is done (for example, recording the replies per frame and replaying them) belongs to the rollback-ready runtime contract.
+- No real-time catch-up: because the SPU2 only follows emulated time, sound plays slow and breaks up whenever the game runs below real speed (about 33–37 of 60 vsyncs per second today, before the PCSX2 GS lands). This is accepted; the Fixer's real-time IOP baseline would hide it by putting host time in the simulation.
+- To verify when the pieces land: speed with `tools/runtime/speed_report.py` and the IOP's share of the thread (3% was measured without sound; real mixing and streaming cost more), the CRI ADX output failures at 0 in the report, sound heard in an interactive run, and two controllers moving the two fighters separately.
+
+**Rejected:** CRI's PCM played on the host as in Shinobi (each PS2RNA function must be found in an executable with no names, it leaves `sceSdRemote` sound effects silent, and ADX's clock would follow the host's sound card, putting host time in the simulation); the whole Fixer as a base (already rejected in [ticket 16](16-gs-vu1-approach.md): real-time VSync and alarms, IOP thread, IOP clock following real time); an IOP thread of its own (small gain, run-to-run variation); controller emulated through the Fixer's SIO2 and DualShock 2 with the original `PADMAN` (vibration, but input would pass through the IOP, which rollback does not restore); a PCSX2-format `.ps2` memory card file (format work for portability nobody needs yet; unlocks are covered by ticket 21's "Unlock All Characters" toggle).
+
+---
+
+_PT-BR: decidido de novo em 23/11/2026 pelo dono do repositório (Tel-BR), com o netplay com rollback como foco._
+
+_**SPU2 do fork PS2Recomp-Fixer, conferido com o PCSX2, dentro do nosso `ps2xIOP`, com os módulos de som originais, movido pelo tempo emulado do IOP e rodando na thread do jogo. Controle e memory card continuam nativos do lado da EE; o controle é lido uma vez por quadro, nas duas portas.**_
+
+1. _**Som: o SPU2 do Fixer como peça única** (~2.000 linhas, GPL-3.0, baseado no PR #308 do PS2Recomp oficial), trazido para o nosso fork do `e563698` sem os ganchos de diagnóstico, junto com a ligação dele em `iop_memory`, `iop_emulator` e no gancho de saída do IOP para o PC. Os `LIBSD`, `SDRDRV` e `CRI_ADXI` originais continuam no IOP emulado e geram música, vozes e efeitos como no PS2, com o comportamento de som do PCSX2, o que também serve à comparação de áudio do ticket 20._
+2. _**Como consequência do item 1, as correções de IOP do Fixer que esse caminho exige:** AutoDMA terminando na velocidade de reprodução (falha 2), `look_ctype_table` do sysclib com os valores certos (candidata a causa da falha 1, a criação da saída do ADX: no Fixer, sem ela o `CRI_ADXI` ignorava seus argumentos; a confirmar quando entrar), nada de fim de DMA ou troca de thread dentro de `CpuSuspendIntr`, threads do IOP de mesma prioridade sem se interromper, e o `sceSifGetOtherData`._
+3. _**Como consequência do item 1, os efeitos sonoros chegam ao IOP:** `sceSdRemote`, `sceSdRemoteInit` e `sceSdTransToIOP` da EE deixam de ser trocados por stubs do PC, e a biblioteca recompilada manda os comandos ao `SDRDRV.IRX`._
+4. _**Relógio e saída no PC:** o SPU2 avança pelos ciclos do IOP (768 por amostra a 48 kHz), que seguem os ciclos emulados da EE; nada no IOP lê o relógio do PC. O PC toca uma fila de mão única e pode reamostrar ou descartar áudio para acompanhar a placa de som sem mexer na simulação. O PR #307 (tempo do IOP preso ao relógio do PC) e a linha de base em tempo real do IOP do Fixer não entram._
+5. _**Thread do IOP: a do jogo.** Sem as duas falhas o IOP mediu ~3% da thread, um piso: aquela sonda não tinha mistura do SPU2 nem streaming do ADX; uma thread própria traria travas e faria a EE ver o IOP em pontos diferentes a cada rodada. Rever só se uma medição mostrar falta de tempo na thread do jogo depois que o GS ganhar a dele._
+6. _**Controle: nativo, lido uma vez por quadro.** As funções `scePad*` do jogo continuam stubs do PC. O runtime tira uma foto das duas portas por quadro, na fronteira do quadro, e todo `scePadRead` daquele quadro devolve essa foto, por porta (jogadores 1 e 2 separados). É o ponto único de entrada que o rollback exige. `SIO2MAN` e `PADMAN` deixam de ser carregados no IOP. Vibração fica para depois._
+7. _**Memory card: pastas no PC, como hoje.** As funções `sceMc*` do jogo continuam stubs do PC gravando em `mc0/` e `mc1/`. `MCMAN` e `MCSERV` deixam de ser carregados no IOP._
+8. _**Leitura do disco:** igual à primeira resolução e ao ticket 18: servida dos arquivos extraídos, sem nunca travar um quadro simulado._
+
+_**Consequências e próximos passos (não são decisões à parte):** o áudio fica fora do estado do rollback e só anda para frente (ticket 21). Continua a regra da primeira resolução: pedidos de som feitos em quadros refeitos não vão ao IOP, e o IOP não avança com os ciclos da EE desses quadros (senão rodaria duas vezes). Esses quadros ainda leem respostas do IOP (estado do ADX, resultados de RPC) e precisam ver o mesmo que o jogo viu da primeira vez; como fazer isso (por exemplo, gravar as respostas por quadro e repeti-las) fica para o contrato do runtime pronto para rollback. Sem compensação em tempo real: como o SPU2 só segue o tempo emulado, o som fica lento e picotado enquanto o jogo rodar abaixo da velocidade real (hoje ~33–37 de 60 vsyncs por segundo, antes do GS do PCSX2). Isso é aceito; a linha de base em tempo real do Fixer esconderia o problema pondo o relógio do PC na simulação. Verificar quando as peças entrarem: velocidade com o `speed_report.py` e a parcela do IOP na thread (os 3% foram medidos sem som; mistura e streaming de verdade custam mais), falhas de saída do CRI ADX em 0 no relatório, som ouvido numa rodada interativa e dois controles movendo os dois lutadores separadamente._
+
+_**Descartados:** PCM do CRI tocado no PC como no Shinobi (cada função PS2RNA teria de ser achada num executável sem nomes, os efeitos do `sceSdRemote` ficariam mudos e o relógio do ADX seguiria a placa de som do PC, pondo tempo do PC na simulação); o Fixer inteiro como base (já descartado no ticket 16: VSync e alarmes em tempo real, IOP em thread, relógio do IOP seguindo o tempo real); IOP em thread própria (ganho pequeno, variação entre rodadas); controle emulado pelo SIO2 e DualShock 2 do Fixer com o `PADMAN` original (vibração, mas a entrada passaria pelo IOP, que o rollback não restaura); arquivo de memory card `.ps2` do PCSX2 (trabalho de formato para uma portabilidade que ninguém precisa ainda; os desbloqueios já têm a opção "liberar todos" do ticket 21)._
