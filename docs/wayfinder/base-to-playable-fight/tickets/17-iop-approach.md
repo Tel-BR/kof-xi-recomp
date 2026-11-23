@@ -2,8 +2,8 @@
 id: 17
 title: Decide how the IOP side is reproduced
 type: grilling
-status: closed
-assignee: Tel-BR
+status: open
+assignee: 
 blocked_by: [06, 15]
 ---
 
@@ -13,7 +13,20 @@ How does the port handle what the PS2 Release does on its I/O processor: sound (
 
 _PT-BR: como o port trata o que a versão de PS2 faz no processador de entrada e saída (IOP): som (SPU2 e o middleware CRI ADX), controle e leitura do disco? O disco tem 7 módulos de IOP (bibliotecas da Sony e o CRI ADX). Escolher, módulo a módulo, entre rodar os módulos originais emulados (como o PS2Recomp faz) e substituí-los por código nativo no PC (por exemplo, um decodificador de ADX e o controle do próprio PC). Pesar o recompilador escolhido, a licença e os requisitos de rollback: um único ponto de entrada dos controles e nenhum relógio do PC vazando para a simulação._
 
-## Resolution
+## Reopened (2026-11-22)
+
+Reopened by the owner: the audio decision rests on a false premise, and the input and memory card decisions were not carried out ([research/diagnose-runtime-performance-audio.md](../research/diagnose-runtime-performance-audio.md)).
+
+- **There was no audio output to rely on.** [Try PS2Recomp on the PS2 executable](13-try-ps2recomp.md) only saw the ADX driver start. The SPU2 is not emulated, so the original sound modules cannot make sound however they run.
+- **The ADX driver fails to set up its output** (`PSM_Create` fails at `PSMTBF_Create`) and falls into a deliberate endless loop that the IOP interpreter keeps executing.
+- **Sound DMA finishes 384 times too early** without an SPU2, so LIBSD's transfer-complete handler runs about 33,000 times per second instead of about 90. With both faults, the IOP takes about 55–60% of the one host thread; removing them in a probe raised the game from about 13 to 25–26 vsyncs per second.
+- **`PADMAN`, `MCMAN` and `MCSERV` are still emulated IRX modules**, not the native replacements decided below.
+
+**To re-decide:** how sound is produced, for example PCSX2's SPU2 inside `ps2xIOP` (as Persona 3 FES and the PS2Recomp-Fixer fork do), CRI's PCM output played on the host (as Shinobi does), or adopting the fork; and whether the IOP runs on its own thread. The rollback requirements stay: audio runs forward only, one input entry point, no host time in the simulation.
+
+_PT-BR: reaberto pelo dono: a decisão de áudio parte de uma premissa falsa, e as decisões de controle e memory card não foram executadas. O ticket 13 só viu o driver ADX iniciar; o SPU2 não é emulado, então os módulos originais não têm como gerar som. A criação da saída do ADX falha e o driver entra num laço infinito proposital, que o IOP interpretado segue executando. Sem SPU2, a DMA de som termina 384 vezes cedo demais e o tratador do LIBSD roda ~33 mil vezes por segundo em vez de ~90. Juntas, essas falhas ocupam ~55–60% da única thread; removê-las numa sonda levou o jogo de ~13 para 25–26 vsyncs por segundo. `PADMAN`, `MCMAN` e `MCSERV` continuam emulados. A decidir de novo: como o som é produzido (o SPU2 do PCSX2 dentro do `ps2xIOP`, a saída PCM do CRI tocada no PC, ou adotar o fork) e se o IOP ganha thread própria. Os requisitos de rollback continuam: áudio só para frente, um único ponto de entrada de controle, nenhum relógio do PC na simulação._
+
+## Resolution (2026-11-21, reopened)
 
 Decided on 2026-11-21 by the repo owner (Tel-BR).
 

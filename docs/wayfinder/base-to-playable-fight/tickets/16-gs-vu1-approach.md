@@ -2,8 +2,8 @@
 id: 16
 title: Decide how GS and VU1 graphics are reproduced
 type: grilling
-status: closed
-assignee: Tel-BR
+status: open
+assignee: 
 blocked_by: [06, 14, 15]
 ---
 
@@ -13,7 +13,19 @@ How does the port draw the Base Version's graphics? The GS and the VU1 microprog
 
 _PT-BR: como o port desenha o gráfico da versão-base? O GS e os microprogramas da VU1 são a parte mais difícil do PS2. Opções: emular o GS por trás do código recompilado, traduzir os comandos dele para uma API gráfica moderna, e interpretar ou recompilar os microprogramas da VU1. Escolher com base nas medições do ticket 14, no recompilador escolhido, na licença e no primeiro critério decisivo: desempenho excelente com os lutadores do NGBC. O desenho também precisa ficar fora do estado que o rollback salva e restaura._
 
-## Resolution
+## Reopened (2026-11-22)
+
+Reopened by the owner: the decision rests on a false premise ([research/diagnose-runtime-performance-audio.md](../research/diagnose-runtime-performance-audio.md)).
+
+- **PS2Recomp has no shader GS backend.** At `e563698` its only GS renderer is `GSCpuBackend`, which draws every pixel on the CPU; the GPU only displays the finished picture.
+- **The software GS is now the main cost.** With the IOP faults removed, it takes about 63% of the one busy host thread, and the game stays near 25 of 60 vsyncs per second on the owner's machine.
+- **What still holds:** zero VU1 microcode (ticket 14), the small GS feature set, and the requirement that renderer state stays outside rollback state with draws suppressed during resimulation.
+
+**To re-decide:** how GS commands reach the GPU, for example PCSX2's hardware GS as the [PS2Recomp-Fixer](https://github.com/w1284603830/PS2Recomp-Fixer/) fork does (DX11/12, own thread, GPL-3.0), a renderer of our own as [BT3-Recomp](https://github.com/z3xox/BT3-Recomp) built (OpenGL/Vulkan), or paraLLEl-GS. Each option must be presented with its causes and consequences.
+
+_PT-BR: reaberto pelo dono porque a decisão parte de uma premissa falsa: o PS2Recomp não tem backend de GS com shaders. No `e563698` o único renderizador é o `GSCpuBackend`, que desenha cada pixel na CPU; a placa de vídeo só mostra a imagem pronta. Sem as falhas do IOP, ele consome ~63% da única thread ocupada e o jogo fica perto de 25 de 60 vsyncs por segundo. Continua valendo: nenhum microcódigo de VU1, o conjunto pequeno de recursos do GS e o estado do renderizador fora do rollback. A decidir de novo: como os comandos do GS chegam à placa de vídeo (por exemplo, o GS por hardware do PCSX2 como no fork PS2Recomp-Fixer, um renderizador próprio como no BT3-Recomp, ou o paraLLEl-GS), com causas e consequências de cada opção._
+
+## Resolution (2026-11-21, reopened)
 
 Decided on 2026-11-21 by the repo owner (Tel-BR).
 
