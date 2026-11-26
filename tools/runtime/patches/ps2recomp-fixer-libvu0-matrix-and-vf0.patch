@@ -1,0 +1,238 @@
+diff --git a/third_party/src/PS2Recomp/ps2xRecomp/src/lib/instruction_translator.cpp b/third_party/src/PS2Recomp/ps2xRecomp/src/lib/instruction_translator.cpp
+index 1e9dc97..35145b6 100644
+--- a/third_party/src/PS2Recomp/ps2xRecomp/src/lib/instruction_translator.cpp
++++ b/third_party/src/PS2Recomp/ps2xRecomp/src/lib/instruction_translator.cpp
+@@ -221,6 +221,9 @@ namespace ps2recomp
+                 inst.rt,
+                 genWrite(32, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate), "bits"));
+         case OPCODE_LDC2:
++            // VF0 is hardwired to (0,0,0,1): LQC2 to it has no effect (a VU0 context restore reloads it).
++            if (inst.rt == 0)
++                return "// LQC2 to VF0 ignored (VF0 is hardwired to (0,0,0,1))";
+             return fmt::format("ctx->vu0_vf[{}] = _mm_castsi128_ps({});", inst.rt, genRead(128, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate)));
+         case OPCODE_SDC2:
+             return genWrite(128, fmt::format("ADD32(GPR_U32(ctx, {}), {})", inst.rs, inst.simmediate), fmt::format("_mm_castps_si128(ctx->vu0_vf[{}])", inst.rt)) + ";";
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/VU.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/VU.cpp
+index 387acb2..aef47c6 100644
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/VU.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/VU.cpp
+@@ -261,12 +261,14 @@ namespace ps2_stubs
+                 o[2] = (l[0] * r[1]) - (l[1] * r[0]);
+                 o[3] = 0.0f;
+             };
++            // As sceVu0Normalize: the length of xyz only, and w = 0 (direction vectors may carry w = 1).
+             auto normalize = [](const float (&s)[4], float (&o)[4])
+             {
+-                const float len = std::sqrt((s[0] * s[0]) + (s[1] * s[1]) + (s[2] * s[2]) + (s[3] * s[3]));
++                const float len = std::sqrt((s[0] * s[0]) + (s[1] * s[1]) + (s[2] * s[2]));
+                 const float inv = (len > 1.0e-6f) ? (1.0f / len) : 0.0f;
+-                for (int i = 0; i < 4; ++i)
++                for (int i = 0; i < 3; ++i)
+                     o[i] = s[i] * inv;
++                o[3] = 0.0f;
+             };
+             float rawCross[4]{}, row0[4]{}, row1[4]{}, row2[4]{};
+             cross(up, fwd, rawCross);
+@@ -710,15 +712,15 @@ namespace ps2_stubs
+     void sceVu0MulMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         const uint32_t dstAddr = getRegU32(ctx, 4);
+-        const uint32_t m0Addr = getRegU32(ctx, 5);
+-        const uint32_t m1Addr = getRegU32(ctx, 6);
+-        float m0[16]{}, m1[16]{}, out[16]{};
+-        if (readVuMatrix4f(rdram, m0Addr, m0) && readVuMatrix4f(rdram, m1Addr, m1))
++        const uint32_t m1Addr = getRegU32(ctx, 5);
++        const uint32_t m2Addr = getRegU32(ctx, 6);
++        float m1[16]{}, m2[16]{}, out[16]{};
++        if (readVuMatrix4f(rdram, m1Addr, m1) && readVuMatrix4f(rdram, m2Addr, m2))
+         {
+-            // out = m0 * m1 (first source . second source), matching the
+-            // file's mulVuMatrix(lhs,rhs)=lhs.rhs convention and the RotMatrix
+-            // / ViewScreenMatrix siblings (first operand on the left).
+-            mulVuMatrix(m0, m1, out);
++            // libvu0 transforms each row of m2 by m1 (m1's rows are the VU0 matrix): out[i] = m2[i][0]*m1[0] +
++            // ... + m2[i][3]*m1[3], i.e. out = m2 * m1 in this file's row-vector convention. The SDK composes
++            // with MulMatrix(wvs, vs, wv); the reverse order lost the view translation from the projected w.
++            mulVuMatrix(m2, m1, out);
+             (void)writeVuMatrix4f(rdram, dstAddr, out);
+         }
+         setReturnS32(ctx, 0);
+@@ -748,11 +750,12 @@ namespace ps2_stubs
+         float src[4]{}, out[4]{};
+         if (readVuVec4f(rdram, srcAddr, src))
+         {
+-            const float len = std::sqrt((src[0] * src[0]) + (src[1] * src[1]) + (src[2] * src[2]) + (src[3] * src[3]));
++            // libvu0 normalizes by the length of xyz only and clears w.
++            const float len = std::sqrt((src[0] * src[0]) + (src[1] * src[1]) + (src[2] * src[2]));
+             if (len > 1.0e-6f)
+             {
+                 const float invLen = 1.0f / len;
+-                for (int i = 0; i < 4; ++i)
++                for (int i = 0; i < 3; ++i)
+                 {
+                     out[i] = src[i] * invLen;
+                 }
+diff --git a/third_party/src/PS2Recomp/ps2xTest/src/code_generator_tests.cpp b/third_party/src/PS2Recomp/ps2xTest/src/code_generator_tests.cpp
+index 463b6cf..27ad732 100644
+--- a/third_party/src/PS2Recomp/ps2xTest/src/code_generator_tests.cpp
++++ b/third_party/src/PS2Recomp/ps2xTest/src/code_generator_tests.cpp
+@@ -1020,6 +1020,18 @@ void register_code_generator_tests()
+             t.IsTrue(ctc1Code.find("ignored") == std::string::npos, "CTC1 FCR31 should not be ignored");
+         });
+ 
++        tc.Run("LQC2 to VF0 is ignored like QMTC2", [](TestCase& t)
++            {
++                // VF0 is hardwired to (0,0,0,1); a VU0 context restore that reloads it (lqc2 $vf0) must not
++                // overwrite it, or the next VDIV $Q, $vf0w divides 0.
++                CodeGenerator gen({}, {});
++                const std::string toVf0 = gen.translateInstruction(makeIType(0x8F40, OPCODE_LQC2, 17, 0, 0x0));
++                const std::string toVf1 = gen.translateInstruction(makeIType(0x8F44, OPCODE_LQC2, 17, 1, 0x10));
++                t.IsTrue(toVf0.find("vu0_vf[0] =") == std::string::npos, "LQC2 must not write VF0");
++                t.IsTrue(toVf1.find("ctx->vu0_vf[1] = _mm_castsi128_ps(") != std::string::npos,
++                         "LQC2 to VF1 must still load");
++            });
++
+         tc.Run("VU CFC2/CTC2 access VI registers directly", [](TestCase& t)
+             {
+                 CodeGenerator gen({}, {});
+diff --git a/third_party/src/PS2Recomp/ps2xTest/src/ps2_vu_tests.cpp b/third_party/src/PS2Recomp/ps2xTest/src/ps2_vu_tests.cpp
+index b96befe..f5ed90c 100644
+--- a/third_party/src/PS2Recomp/ps2xTest/src/ps2_vu_tests.cpp
++++ b/third_party/src/PS2Recomp/ps2xTest/src/ps2_vu_tests.cpp
+@@ -296,36 +296,29 @@ void register_ps2_vu_tests()
+             t.IsTrue(allMatch, "MulMatrix(dst, I, A) should equal A");
+         });
+ 
+-        tc.Run("MulMatrix_equals_arg1_times_arg2", [](TestCase &t)
++        tc.Run("MulMatrix_matches_libvu0_machine_order", [](TestCase &t)
+         {
++            // libvu0 sceVu0MulMatrix(a0, a1, a2) loads a1's four rows into VF4..VF7, then for each row of a2 runs
++            // VMULAx/VMADDAy/VMADDAz/VMADDw ACC, VF4..VF7, row: out[i] = a2[i][0]*a1[0] + ... + a2[i][3]*a1[3].
++            // In this file's row-vector convention that is out = a2 * a1 (the second argument on the left).
+             VuEnv env;
+-            float m0[16] = {
++            const float a1[16] = {
+                 1, 3, 2, 4,
+                 5, 2, 6, 1,
+                 3, 7, 1, 5,
+                 2, 4, 3, 1};
+-            float m1[16] = {
++            const float a2[16] = {
+                 1, 2, 3, 4,
+                 5, 6, 7, 8,
+                 9, 10, 11, 12,
+                 13, 14, 15, 16};
+             float expected[16]{};
+-            for (int i = 0; i < 4; ++i)
+-            {
+-                for (int j = 0; j < 4; ++j)
+-                {
+-                    float sum = 0.0f;
+-                    for (int k = 0; k < 4; ++k)
+-                    {
+-                        // expected = mulVuMatrix(m0, m1) = m0 * m1 (arg1 * arg2);
+-                        // mulVuMatrix is file-local to VU.cpp, so mirror its formula here.
+-                        sum += m1[4 * k + j] * m0[4 * i + k];
+-                    }
+-                    expected[4 * i + j] = sum;
+-                }
+-            }
+-            writeMat4(env, kA, m0);
+-            writeMat4(env, kB, m1);
++            for (int row = 0; row < 4; ++row)
++                for (int k = 0; k < 4; ++k)
++                    for (int lane = 0; lane < 4; ++lane)
++                        expected[4 * row + lane] += a2[4 * row + k] * a1[4 * k + lane];
++            writeMat4(env, kA, a1);
++            writeMat4(env, kB, a2);
+             SET_GPR_U32(&env.ctx, 4, kDst);
+             SET_GPR_U32(&env.ctx, 5, kA);
+             SET_GPR_U32(&env.ctx, 6, kB);
+@@ -334,13 +327,34 @@ void register_ps2_vu_tests()
+             readMat4(env, kDst, out);
+             bool allMatch = true;
+             for (int i = 0; i < 16; ++i)
+-            {
+-                if (!nearlyEqual(out[i], expected[i]))
+-                {
+-                    allMatch = false;
+-                }
+-            }
+-            t.IsTrue(allMatch, "MulMatrix(dst, m0, m1) should equal m0*m1 (mulVuMatrix(m0,m1), arg1*arg2)");
++                allMatch = allMatch && nearlyEqual(out[i], expected[i]);
++            t.IsTrue(allMatch, "MulMatrix(dst, a1, a2) should equal a2 * a1, as the libvu0 VU0 loop computes it");
++        });
++
++        tc.Run("MulMatrix_carries_view_translation_into_projected_w", [](TestCase &t)
++        {
++            // A world-to-view matrix that pushes geometry 1000 units down the view axis, combined with a projection
++            // whose third row sends view z to w (as sceVu0ViewScreenMatrix builds it). The SDK call order is
++            // MulMatrix(wvs, vs, wv); a vertex at the origin must land at w = 1000, not w = 0.
++            VuEnv env;
++            float vs[16]{};
++            makeIdentity(vs);
++            vs[10] = 0.0f;
++            vs[11] = 1.0f;
++            vs[14] = 1.0f;
++            vs[15] = 0.0f;
++            float wv[16]{};
++            makeIdentity(wv);
++            wv[14] = 1000.0f;
++            writeMat4(env, kA, vs);
++            writeMat4(env, kB, wv);
++            SET_GPR_U32(&env.ctx, 4, kDst);
++            SET_GPR_U32(&env.ctx, 5, kA);
++            SET_GPR_U32(&env.ctx, 6, kB);
++            ps2_stubs::sceVu0MulMatrix(env.rdram.data(), &env.ctx, &env.runtime);
++            float out[16]{};
++            readMat4(env, kDst, out);
++            t.IsTrue(nearlyEqual(out[15], 1000.0f), "the origin's projected w must be the view distance");
+         });
+ 
+         tc.Run("RotMatrix_Z_matches_RotMatrixZ", [](TestCase &t)
+@@ -682,6 +696,45 @@ void register_ps2_vu_tests()
+                      "CameraMatrix should map the eye point to the view-space origin");
+         });
+ 
++        tc.Run("Normalize_uses_xyz_length_and_clears_w", [](TestCase &t)
++        {
++            // libvu0 sceVu0Normalize: the length ignores w and the result's w is 0.
++            VuEnv env;
++            writeVec4(env, kA, 3.0f, 0.0f, 4.0f, 1.0f);
++            SET_GPR_U32(&env.ctx, 4, kDst);
++            SET_GPR_U32(&env.ctx, 5, kA);
++            ps2_stubs::sceVu0Normalize(env.rdram.data(), &env.ctx, &env.runtime);
++            float out[4]{};
++            readVec4f(env, kDst, out);
++            t.IsTrue(nearlyEqual(out[0], 0.6f) && nearlyEqual(out[1], 0.0f) && nearlyEqual(out[2], 0.8f) &&
++                         nearlyEqual(out[3], 0.0f),
++                     "Normalize((3,0,4,1)) should be (0.6,0,0.8,0)");
++        });
++
++        tc.Run("CameraMatrix_ignores_direction_w", [](TestCase &t)
++        {
++            // libvu0 builds the camera from sceVu0Normalize'd directions, so a w of 1 on the view and up
++            // vectors must not change the matrix.
++            VuEnv env;
++            writeVec4(env, kA, 0.0f, 0.0f, -10.0f, 1.0f); // eye
++            writeVec4(env, kB, 0.0f, 0.0f, 1.0f, 1.0f);   // view direction, w = 1
++            writeVec4(env, kC, 0.0f, 1.0f, 0.0f, 1.0f);   // up, w = 1
++            SET_GPR_U32(&env.ctx, 4, kDst);
++            SET_GPR_U32(&env.ctx, 5, kA);
++            SET_GPR_U32(&env.ctx, 6, kB);
++            SET_GPR_U32(&env.ctx, 7, kC);
++            ps2_stubs::sceVu0CameraMatrix(env.rdram.data(), &env.ctx, &env.runtime);
++            float out[16]{};
++            readMat4(env, kDst, out);
++            float expected[16]{};
++            makeIdentity(expected);
++            expected[14] = 10.0f;
++            bool allMatch = true;
++            for (int i = 0; i < 16; ++i)
++                allMatch = allMatch && nearlyEqual(out[i], expected[i], 1e-3f);
++            t.IsTrue(allMatch, "CameraMatrix with w=1 directions should be the identity moved 10 down the view axis");
++        });
++
+         tc.Run("NormalLightMatrix_neg_normalized", [](TestCase &t)
+         {
+             VuEnv env;
