@@ -450,13 +450,17 @@ Backup of the pre-upgrade tree: `private/scratch/i12/runner_before_upgrade/`.
 | `loop_z24v2ziw` | **GREEN title+menu+nav+mode_visible**, fps 50.6, upgraded `src/runner` + libvu0 fixes |
 | `loop_gyuyuw8a` | **GREEN title+menu+nav+mode_visible**, fps 50.7, after review fixes (two-capture menu exit, fps floor) |
 
-### Remaining: text ring under the 3D fan (issue #18)
+### Text ring around the emblem: owner-validated (2026-11-26)
+
+The owner validated the main menu after the fixes: the text ring around the emblem renders correctly. The
+depth observation below came from one capture-gated frame and is kept as a note for #18, not as an open
+defect.
 
 The emblem's text ring (TBP 0x3480 P_8, 1008 vertices) is drawn between the two halves of the fan with
 interleaved Z (reference ring 0xFFFF8DA6–8E55, fan 0xFFFF8D34–8EDF, GEQUAL). The DLL draw table reports
 the ring at Z 0xFFFF8E00 flat and the fan at 0xFFFF8E00–8F00: 32-bit depth near 2³² is held with float
 precision (steps of 256), so ring and fan tie and the later fan half covers the text. The vertex data
-matches the reference; this is renderer depth precision, not EE code.
+matches the reference; if a ring/fan tie ever shows, it is renderer depth precision, not EE code.
 
 ### Pitfalls (this ticket)
 
