@@ -1,0 +1,64 @@
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h
+@@ -1416,15 +1417,9 @@ namespace
+
+     uint32_t toDmaPhys(uint32_t addr)
+     {
+-        if ((addr & 0x80000000u) != 0)
+-        {
+-            uint32_t lower = addr & 0x7FFFFFFFu;
+-            if (lower >= PS2_SCRATCHPAD_BASE &&
+-                lower < PS2_SCRATCHPAD_BASE + PS2_SCRATCHPAD_SIZE)
+-            {
+-                return lower;
+-            }
+-        }
++        // The DMA model accepts the CPU scratchpad window in MADR and TADR.
++        if (ps2IsScratchpadAddress(addr))
++            return PS2_SCRATCHPAD_BASE + ps2ScratchpadOffset(addr);
+         return addr & 0x1FFFFFFFu;
+     }
+
+diff --git a/third_party/src/PS2Recomp/ps2xTest/src/ps2_memory_tests.cpp b/third_party/src/PS2Recomp/ps2xTest/src/ps2_memory_tests.cpp
+--- a/third_party/src/PS2Recomp/ps2xTest/src/ps2_memory_tests.cpp
++++ b/third_party/src/PS2Recomp/ps2xTest/src/ps2_memory_tests.cpp
+@@ -2078,6 +2078,38 @@ void register_ps2_memory_tests()
+             t.Equals(mem.readIORegister(kDstadr), 0u, "sceDmaReset should clear D_STADR");
+         });
+
++        tc.Run("sceDmaSend forwards GIF chains from the CPU scratchpad window", [](TestCase &t)
++        {
++            PS2Runtime runtime;
++            PS2Memory &mem = runtime.memory();
++            t.IsTrue(mem.initialize(), "PS2Memory initialize should succeed");
++
++            constexpr uint32_t kOffset = 0x100u;
++            const uint64_t tag = makeDmaTag(1u, 7u, 0u, false); // END, one inline qword.
++            constexpr std::array<uint64_t, 2> packet{0x8000u, 0u}; // Empty GIF tag with EOP.
++            std::memcpy(mem.getScratchpad() + kOffset, &tag, sizeof(tag));
++            std::memcpy(mem.getScratchpad() + kOffset + 16u, packet.data(), sizeof(packet));
++
++            std::vector<uint8_t> received;
++            mem.setGifPacketCallback([&](const uint8_t *data, uint32_t size)
++            {
++                received.insert(received.end(), data, data + size);
++            });
++
++            for (const uint32_t base : {PS2_SCRATCHPAD_BASE, PS2_SCRATCHPAD_ALIAS_BASE})
++            {
++                received.clear();
++                R5900Context ctx{};
++                setRegU32(ctx, 4, 2u); // sceDmaGetChan(2) / GIF.
++                setRegU32(ctx, 5, base + kOffset);
++                ps2_stubs::sceDmaSend(mem.getRDRAM(), &ctx, &runtime);
++
++                t.Equals(received.size(), sizeof(packet), "scratchpad chain should deliver one GIF qword");
++                t.IsTrue(received.size() == sizeof(packet) && std::memcmp(received.data(), packet.data(), sizeof(packet)) == 0,
++                         "the GIF callback should receive the inline scratchpad payload");
++            }
++        });
++
+         tc.Run("sceDmaSend preserves guest-configured VIF1 TTE", [](TestCase &t)
+         {
+             PS2Runtime runtime;
