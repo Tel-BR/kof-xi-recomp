@@ -1,0 +1,326 @@
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/CMakeLists.txt b/third_party/src/PS2Recomp/ps2xRuntime/CMakeLists.txt
+--- a/third_party/src/PS2Recomp/ps2xRuntime/CMakeLists.txt
++++ b/third_party/src/PS2Recomp/ps2xRuntime/CMakeLists.txt
+@@ -558,6 +558,8 @@
+     target_compile_options(ps2EntryRunner PRIVATE /FS)
+     # [DoD] linker map for symbolizing --trace stack samples (tools/scripts/symbolize_trace.py)
+     target_link_options(ps2EntryRunner PRIVATE /MAP)
++    # [KOF XI spike] old clang-generated code nests guest calls deeply; std::thread uses this default stack size
++    target_link_options(ps2EntryRunner PRIVATE /STACK:536870912)
+ endif()
+ 
+ # [DoD] function-entry ring for --trace (generated code calls PS_LOG_ENTRY when PS2_FUNCTION_LOG_TRACKER is set)
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+@@ -3001,6 +3001,15 @@
+             queueInvocation(std::move(invocation));
+         }
+         dispatchIrq(false, 2u);
++        {
++            // [KOF XI spike] KOF_VBLANK_WAKE1=1: the old kof-xi runtime woke EE thread 1 from SleepThread on every
++            // VBlank (local hack in its EeScheduler). Opt-in here to test whether the game needs it on this base.
++            static const bool kofWake1 = std::getenv("KOF_VBLANK_WAKE1") != nullptr;
++            GuestThread *th1 = kofWake1 ? thread(1) : nullptr;
++            if (th1 && (th1->status == EeThreadStatus::Waiting || th1->status == EeThreadStatus::WaitingSuspended) &&
++                th1->wait.reason == EeWaitReason::Sleep)
++                wakeupThread(1, true);
++        }
+         break;
+     case EeEventType::ExternalWake:
+         completeExternalWait(event.id, event.value, KE_OK);
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+@@ -5,6 +5,7 @@
+ #include "runtime/gs/ps2_gs_common.h"
+ #include "runtime/gs/ps2_gs_psmct16.h"
+ #include "runtime/ee_scheduler.h"
++#include "../../gs/dod_pcsx2_gs.h"
+ #include <atomic>
+ #include <chrono>
+ #include <cstdio>
+@@ -14,6 +15,21 @@
+ {
+     namespace
+     {
++        void submitDrawEnvironment(PS2Runtime *runtime, const GsRegPairMem *pairs, size_t count)
++        {
++            if (!dodpcsx2::active())
++            {
++                applyGsRegPairs(runtime, pairs, count);
++                return;
++            }
++            // Direct register writes only reach the software GS. Submit the same
++            // A+D list through the GIF so both GS implementations see its state.
++            std::vector<GsRegPairMem> packet(count + 1);
++            packet[0] = {makeGiftagAplusD(static_cast<uint32_t>(count)), 0xE};
++            std::memcpy(packet.data() + 1, pairs, count * sizeof(*pairs));
++            runtime->memory().submitGifPacket(GifPathId::Path3, reinterpret_cast<const uint8_t *>(packet.data()),
++                                              static_cast<uint32_t>(packet.size() * sizeof(*pairs)));
++        }
+         uint64_t makeClearPrim(bool useContext2)
+         {
+             return static_cast<uint64_t>(GS_PRIM_SPRITE) |
+@@ -119,6 +135,12 @@
+                 return;
+             }
+ 
++            if (dodpcsx2::active())
++            {
++                const GsRegPairMem pairs[] = {clear.testa, clear.prim, clear.rgbaq, clear.xyz2a, clear.xyz2b, clear.testb};
++                submitDrawEnvironment(runtime, pairs, 6);
++                return;
++            }
+             runtime->gs().writeRegister(static_cast<uint8_t>(clear.testa.reg & 0xFFu), clear.testa.value);
+             runtime->gs().writeRegister(static_cast<uint8_t>(clear.prim.reg & 0xFFu), clear.prim.value);
+             runtime->gs().writeRegister(static_cast<uint8_t>(clear.rgbaq.reg & 0xFFu), clear.rgbaq.value);
+@@ -621,7 +643,7 @@
+             return;
+         }
+ 
+-        uint32_t dbp = (static_cast<uint32_t>(img.vram_addr) * 2048u) / 256u;
++        uint32_t dbp = static_cast<uint32_t>(img.vram_addr) & 0x3FFFu;
+         uint32_t dsax = static_cast<uint32_t>(img.x);
+         uint32_t dsay = static_cast<uint32_t>(img.y);
+ 
+@@ -686,7 +708,7 @@
+             return;
+         }
+ 
+-        uint32_t sbp = (static_cast<uint32_t>(img.vram_addr) * 2048u) / 256u;
++        uint32_t sbp = static_cast<uint32_t>(img.vram_addr) & 0x3FFFu;
+         uint64_t bitbltbuf = (static_cast<uint64_t>(sbp & 0x3FFFu) << 0) |
+                              (static_cast<uint64_t>(fbw & 0x3Fu) << 16) |
+                              (static_cast<uint64_t>(img.psm & 0x3Fu) << 24) |
+@@ -763,13 +785,42 @@
+     void sceGsPutDrawEnv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         uint32_t envAddr = getRegU32(ctx, 4);
++        // libgraph: sceGsPutDrawEnv(sceGifTag *giftag) sends the GIF tag and the
++        // NLOOP A+D pairs that follow it (a drawing environment, often followed by
++        // a clear sprite from sceGsSetDefClear/Clear2), not a bare list of 8 pairs.
++        // A tag that is not a packed A+D list falls back to the old bare-pairs read.
++        {
++            GsGiftagMem tag{};
++            const uint8_t *tagPtr = getConstMemPtr(rdram, envAddr);
++            if (tagPtr)
++            {
++                std::memcpy(&tag, tagPtr, sizeof(tag));
++                const uint32_t nloop = static_cast<uint32_t>(tag.lo & 0x7FFFull);
++                const uint32_t flg = static_cast<uint32_t>((tag.lo >> 58) & 0x3ull);
++                const uint32_t nreg = static_cast<uint32_t>((tag.lo >> 60) & 0xFull);
++                const bool packedAd = flg == 0u && nreg == 1u && (tag.hi & 0xFull) == 0xEull;
++                constexpr uint32_t kMaxPairs = 64u;
++                if (packedAd && nloop != 0u && nloop <= kMaxPairs)
++                {
++                    GsRegPairMem tagged[kMaxPairs]{};
++                    if (!readGsRegPairs(rdram, envAddr + 16u, tagged, nloop))
++                    {
++                        setReturnS32(ctx, -1);
++                        return;
++                    }
++                    submitDrawEnvironment(runtime, tagged, nloop);
++                    setReturnS32(ctx, 0);
++                    return;
++                }
++            }
++        }
+         GsRegPairMem pairs[8]{};
+         if (!readGsRegPairs(rdram, envAddr, pairs, 8u))
+         {
+             setReturnS32(ctx, -1);
+             return;
+         }
+-        applyGsRegPairs(runtime, pairs, 8u);
++        submitDrawEnvironment(runtime, pairs, 8u);
+         setReturnS32(ctx, 0);
+     }
+ 
+@@ -792,6 +843,19 @@
+             g_gparam.omode = static_cast<uint8_t>(omode & 0xFF);
+             g_gparam.ffmode = static_cast<uint8_t>(ffmode & 0x1);
+             writeGsGParamToScratch(runtime);
++            {
++                // [KOF XI spike] KOF_GS_DISPFIX=1: the real sceGsResetGraph calls the SetGsCrt syscall, which sets
++                // SMODE1 (NTSC/PAL). This stub skipped it, so SMODE1 stayed 0 and PCSX2's GS took the output for VESA.
++                static const bool kofDispFix = std::getenv("KOF_GS_DISPFIX") != nullptr;
++                if (kofDispFix)
++                {
++                    R5900Context crt = *ctx;
++                    SET_GPR_U32(&crt, 4, interlace & 0x1u);
++                    SET_GPR_U32(&crt, 5, omode);
++                    SET_GPR_U32(&crt, 6, ffmode & 0x1u);
++                    ps2_syscalls::SetGsCrt(rdram, &crt, runtime);
++                }
++            }
+             uint64_t pmode = makePmode(1, 0, 0, 0, 0, 0x80);
+             uint64_t smode2 = (interlace & 0x1) | ((ffmode & 0x1) << 1);
+             uint64_t dispfb = makeDispFb(0, 10, 0, 0, 0);
+@@ -925,10 +989,12 @@
+         uint32_t psm = getRegU32(ctx, 5);
+         uint32_t w = getRegU32(ctx, 6);
+         uint32_t h = getRegU32(ctx, 7);
+-        const uint32_t ztest = readStackU32(rdram, ctx, 16);
+-        const uint32_t zpsm = readStackU32(rdram, ctx, 20);
+-        const uint32_t clear = readStackU32(rdram, ctx, 24);
+-        (void)clear;
++        // sceGsSetDefDBuff(db, psm, w, h, ztest, zpsm, clear): the EE ABI passes the
++        // first eight integer arguments in a0-a3/t0-t3, so ztest, zpsm and clear
++        // arrive in t0, t1 and t2, not on the stack.
++        const uint32_t ztest = getRegU32(ctx, 8);
++        const uint32_t zpsm = getRegU32(ctx, 9);
++        const uint32_t clear = getRegU32(ctx, 10);
+ 
+         if (w == 0u)
+         {
+@@ -944,7 +1010,6 @@
+         const uint64_t smode2 =
+             (static_cast<uint64_t>(g_gparam.interlace & 0x1u) << 0) |
+             (static_cast<uint64_t>(g_gparam.ffmode & 0x1u) << 1);
+-        const uint64_t dispfb = makeDispFb(0u, fbw, psm, 0u, 0u);
+         const uint64_t display = makeDisplay(636u, 32u, 0u, 0u, w - 1u, h - 1u);
+ 
+         const int32_t drawWidth = static_cast<int32_t>(w);
+@@ -957,18 +1022,36 @@
+             zbufAddr = getRegU32(&temp, 2);
+         }
+ 
++        // Two frame buffers, back to back: buffer 0 at FBP 0, buffer 1 right after it
++        // (one frame, in 2048-word pages: 64x32 pixels for 32-bit, 64x64 for 16-bit).
++        // Environment 0 shows buffer 0 while drawing into buffer 1, environment 1 the
++        // reverse, so the clear and the new frame never touch the picture on screen.
++        // KOF XI relies on this pairing: after sceGsSwapDBuff(db, 1) its own
++        // drawing environment targets FBP 0, and it stores FBP 1 in disp[1].
++        const bool psm16 = ((psm & 0xFu) == 0x2u) || ((psm & 0xFu) == 0xAu);
++        const uint32_t fbp1 = fbw * (psm16 ? ((h + 63u) / 64u) : ((h + 31u) / 32u));
++
+         GsDBuffMem db{};
+         db.disp[0].pmode = pmode;
+         db.disp[0].smode2 = smode2;
+-        db.disp[0].dispfb = dispfb;
++        db.disp[0].dispfb = makeDispFb(0u, fbw, psm, 0u, 0u);
+         db.disp[0].display = display;
+         db.disp[0].bgcolor = 0u;
+         db.disp[1] = db.disp[0];
+-
+-        db.giftag0 = {makeGiftagAplusD(14u), 0x0E0E0E0E0E0E0E0EULL};
+-        seedGsDrawEnv1(db.draw0, drawWidth, drawHeight, 0u, fbw, psm, zbufAddr, zpsm, ztest, false);
++        db.disp[1].dispfb = makeDispFb(fbp1, fbw, psm, 0u, 0u);
++
++        // A+D tag: the 8 drawing-environment registers, plus the 6-register clear
++        // sprite when the caller asked for one.
++        const bool seedClear = clear != 0u;
++        db.giftag0 = {makeGiftagAplusD(seedClear ? 14u : 8u), 0x0E0E0E0E0E0E0E0EULL};
++        seedGsDrawEnv1(db.draw0, drawWidth, drawHeight, fbp1, fbw, psm, zbufAddr, zpsm, ztest, false);
+         db.giftag1 = db.giftag0;
+         seedGsDrawEnv1(db.draw1, drawWidth, drawHeight, 0u, fbw, psm, zbufAddr, zpsm, ztest, false);
++        if (seedClear)
++        {
++            seedGsClearPacket(db.clear0, drawWidth, drawHeight, 0u, ztest, false);
++            seedGsClearPacket(db.clear1, drawWidth, drawHeight, 0u, ztest, false);
++        }
+ 
+         if (!writeGsDBuff(rdram, envAddr, db))
+         {
+@@ -1144,8 +1227,8 @@
+         }
+         if (which == 0u)
+         {
+-            applyGsRegPairs(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw01), 8u);
+-            applyGsRegPairs(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw02), 8u);
++            submitDrawEnvironment(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw01), 8u);
++            submitDrawEnvironment(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw02), 8u);
+             if (hasSeededGsClearPacket(db.clear0))
+             {
+                 const uint32_t clearContext = static_cast<uint32_t>((db.clear0.prim.value >> 9) & 0x1u);
+@@ -1155,8 +1238,8 @@
+         }
+         else
+         {
+-            applyGsRegPairs(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw11), 8u);
+-            applyGsRegPairs(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw12), 8u);
++            submitDrawEnvironment(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw11), 8u);
++            submitDrawEnvironment(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw12), 8u);
+             if (hasSeededGsClearPacket(db.clear1))
+             {
+                 const uint32_t clearContext = static_cast<uint32_t>((db.clear1.prim.value >> 9) & 0x1u);
+@@ -1183,14 +1266,18 @@
+         applyGsDispEnv(runtime, db.disp[which]);
+         if (which == 0u)
+         {
+-            applyGsRegPairs(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw0), 8u);
++            submitDrawEnvironment(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw0), 8u);
+         }
+         else
+         {
+-            applyGsRegPairs(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw1), 8u);
+-        }
+-
+-        setReturnS32(ctx, static_cast<int32_t>(which ^ 1u));
++            submitDrawEnvironment(runtime, reinterpret_cast<const GsRegPairMem *>(&db.draw1), 8u);
++        }
++        // libgraph sends the tag's whole A+D list: the drawing environment, then the
++        // clear sprite that sceGsSetDefDBuff seeded when asked to clear.
++        applyGsClearPacket(runtime, (which == 0u) ? db.clear0 : db.clear1);
++
++        // libgraph returns 0; KOF XI prints "dbuff err!!" on any other value.
++        setReturnS32(ctx, 0);
+     }
+ 
+     void sceGsSyncPath(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/include/kof_pmfhl_compat.h b/third_party/src/PS2Recomp/ps2xRuntime/include/kof_pmfhl_compat.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/src/PS2Recomp/ps2xRuntime/include/kof_pmfhl_compat.h
+@@ -0,0 +1,50 @@
++#pragma once
++// KOF XI spike: PMFHL helpers from the old kof-xi runtime, for generated code made by the old recompiler.
++#include <cstdint>
++#include <emmintrin.h>
++inline uint32_t ps2_pmfhl_word(uint64_t v, int word) { return static_cast<uint32_t>(v >> (word * 32)); }
++inline uint16_t ps2_pmfhl_half(uint64_t v, int half) { return static_cast<uint16_t>(v >> (half * 16)); }
++inline int16_t ps2_pmfhl_sat16(uint32_t w)
++{
++    const int32_t v = static_cast<int32_t>(w);
++    return static_cast<int16_t>(v > 0x7FFF ? 0x7FFF : (v < -0x8000 ? -0x8000 : v));
++}
++inline int64_t ps2_pmfhl_sat32(uint32_t hiWord, uint32_t loWord)
++{
++    const int64_t v = static_cast<int64_t>((static_cast<uint64_t>(hiWord) << 32) | loWord);
++    return v > 0x7FFFFFFFLL ? 0x7FFFFFFFLL : (v < -0x80000000LL ? -0x80000000LL : v);
++}
++inline __m128i ps2_pmfhl_lw(uint64_t hi, uint64_t lo, uint64_t hi1, uint64_t lo1)
++{
++    return _mm_set_epi32(static_cast<int>(ps2_pmfhl_word(hi1, 0)), static_cast<int>(ps2_pmfhl_word(lo1, 0)),
++                         static_cast<int>(ps2_pmfhl_word(hi, 0)), static_cast<int>(ps2_pmfhl_word(lo, 0)));
++}
++inline __m128i ps2_pmfhl_uw(uint64_t hi, uint64_t lo, uint64_t hi1, uint64_t lo1)
++{
++    return _mm_set_epi32(static_cast<int>(ps2_pmfhl_word(hi1, 1)), static_cast<int>(ps2_pmfhl_word(lo1, 1)),
++                         static_cast<int>(ps2_pmfhl_word(hi, 1)), static_cast<int>(ps2_pmfhl_word(lo, 1)));
++}
++inline __m128i ps2_pmfhl_slw(uint64_t hi, uint64_t lo, uint64_t hi1, uint64_t lo1)
++{
++    return _mm_set_epi64x(static_cast<long long>(ps2_pmfhl_sat32(ps2_pmfhl_word(hi1, 0), ps2_pmfhl_word(lo1, 0))),
++                          static_cast<long long>(ps2_pmfhl_sat32(ps2_pmfhl_word(hi, 0), ps2_pmfhl_word(lo, 0))));
++}
++inline __m128i ps2_pmfhl_lh(uint64_t hi, uint64_t lo, uint64_t hi1, uint64_t lo1)
++{
++    return _mm_set_epi16(static_cast<short>(ps2_pmfhl_half(hi1, 2)), static_cast<short>(ps2_pmfhl_half(hi1, 0)),
++                         static_cast<short>(ps2_pmfhl_half(lo1, 2)), static_cast<short>(ps2_pmfhl_half(lo1, 0)),
++                         static_cast<short>(ps2_pmfhl_half(hi, 2)), static_cast<short>(ps2_pmfhl_half(hi, 0)),
++                         static_cast<short>(ps2_pmfhl_half(lo, 2)), static_cast<short>(ps2_pmfhl_half(lo, 0)));
++}
++inline __m128i ps2_pmfhl_sh(uint64_t hi, uint64_t lo, uint64_t hi1, uint64_t lo1)
++{
++    return _mm_set_epi16(ps2_pmfhl_sat16(ps2_pmfhl_word(hi1, 1)), ps2_pmfhl_sat16(ps2_pmfhl_word(hi1, 0)),
++                         ps2_pmfhl_sat16(ps2_pmfhl_word(lo1, 1)), ps2_pmfhl_sat16(ps2_pmfhl_word(lo1, 0)),
++                         ps2_pmfhl_sat16(ps2_pmfhl_word(hi, 1)), ps2_pmfhl_sat16(ps2_pmfhl_word(hi, 0)),
++                         ps2_pmfhl_sat16(ps2_pmfhl_word(lo, 1)), ps2_pmfhl_sat16(ps2_pmfhl_word(lo, 0)));
++}
++#define KOF_PMFHL_LW(ctx) ps2_pmfhl_lw((ctx)->hi, (ctx)->lo, (ctx)->hi1, (ctx)->lo1)
++#define KOF_PMFHL_UW(ctx) ps2_pmfhl_uw((ctx)->hi, (ctx)->lo, (ctx)->hi1, (ctx)->lo1)
++#define KOF_PMFHL_SLW(ctx) ps2_pmfhl_slw((ctx)->hi, (ctx)->lo, (ctx)->hi1, (ctx)->lo1)
++#define KOF_PMFHL_LH(ctx) ps2_pmfhl_lh((ctx)->hi, (ctx)->lo, (ctx)->hi1, (ctx)->lo1)
++#define KOF_PMFHL_SH(ctx) ps2_pmfhl_sh((ctx)->hi, (ctx)->lo, (ctx)->hi1, (ctx)->lo1)

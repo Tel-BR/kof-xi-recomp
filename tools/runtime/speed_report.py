@@ -4,7 +4,7 @@ Speed and audio report for a native runtime log (ticket 13 feedback loop).
 
 Reads the stdout (and optionally stderr) captured from a headless run, for example:
 
-    python tools/runtime/run_native.py --headless --timeout 30 \
+    python tools/runtime/run_native.py --exe private/kof_xi_native.exe --headless --timeout 30 \
         --stdout private/scratch/run_out.txt --stderr private/scratch/run_err.txt
     python tools/runtime/speed_report.py private/scratch/run_out.txt private/scratch/run_err.txt
 

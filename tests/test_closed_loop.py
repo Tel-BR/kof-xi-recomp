@@ -5,10 +5,15 @@ Frames are synthetic arrays shaped like the 640x448 runtime captures; no game im
 """
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 
-from tools.runtime.closed_loop import ROWS, apply_fps_floor, median_fps, menu_row, mode_screen_visible, title_score
+from tools.runtime.closed_loop import (
+    AUDIO_RATE, MIX_HEADER_BYTES, ROWS, apply_fps_floor, audio_activity, median_fps,
+    menu_row, mode_screen_visible, title_score,
+)
 
 ORANGE = (240, 150, 60)
 
@@ -97,6 +102,22 @@ class TestMedianFps(unittest.TestCase):
                         [(300, 20.0), (900, 58.0), (1200, 60.0), (1500, 59.0)])
         self.assertEqual(median_fps(err), 59.0)
         self.assertIsNone(median_fps("no samples"))
+
+
+class TestAudioActivity(unittest.TestCase):
+    def test_measures_stereo_rms_after_the_menu_and_ignores_partial_windows(self):
+        with TemporaryDirectory() as directory:
+            capture = Path(directory) / "mix.wav"
+            with capture.open("wb") as file:
+                file.write(bytes(MIX_HEADER_BYTES))
+                for level, frames in [(2400, AUDIO_RATE), (0, AUDIO_RATE), (150, AUDIO_RATE),
+                                      (-1000, AUDIO_RATE), (2400, AUDIO_RATE // 2)]:
+                    file.write(np.full((frames, 2), level, dtype="<i2").tobytes())
+            self.assertEqual(audio_activity(capture, start_frame=AUDIO_RATE), (1, 3))
+
+    def test_missing_capture_does_not_supply_audio_windows(self):
+        with TemporaryDirectory() as directory:
+            self.assertEqual(audio_activity(Path(directory) / "mix.wav", start_frame=0), (0, 0))
 
 
 if __name__ == "__main__":

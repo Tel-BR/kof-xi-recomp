@@ -1,0 +1,350 @@
+diff --git a/third_party/src/PS2Recomp/ps2xIOP/src/emulator/core/iop_sio2.cpp b/third_party/src/PS2Recomp/ps2xIOP/src/emulator/core/iop_sio2.cpp
+--- a/third_party/src/PS2Recomp/ps2xIOP/src/emulator/core/iop_sio2.cpp
++++ b/third_party/src/PS2Recomp/ps2xIOP/src/emulator/core/iop_sio2.cpp
+@@ -257,7 +257,7 @@
+                                     (pad.mode == kModeDigital || pad.mode == kModeAnalog || pad.mode == kModeDualShock2) &&
+                                     m_commandLength >= 5u && m_fifoIn.size() >= 4u && m_fifoIn.front() == 0x42u;
+             const auto provider = normalPoll && g_dodPadPollStateProvider ? g_dodPadPollStateProvider : g_dodPadStateProvider;
+-            const bool present = m_port == 0 && provider && provider(m_port, pad.state);
++            const bool present = provider && provider(m_port, pad.state);
+             if (!present)
+             {
+                 if (g_dodPadRumbleOutput) g_dodPadRumbleOutput(m_port, 0, 0);
+@@ -353,6 +353,13 @@
+                 if (pad.motorMap[n - 3u] == 0u) pad.smallMotor = commandByte & 1u;
+                 if (pad.motorMap[n - 3u] == 1u) pad.largeMotor = commandByte;
+             }
++            if (n >= 9u && n <= 20u)
++            {
++                if (pad.state[1] == kModeDualShock2)
++                    return pad.state[n - 1u]; // recorded pressure bytes
++                constexpr unsigned pressureBits[] = {13, 15, 12, 14, 4, 5, 6, 7, 2, 3, 0, 1};
++                return pressed(buttons, pressureBits[n - 9u]) ? 0xFFu : 0u;
++            }
+             switch (n)
+             {
+             case 3: return static_cast<uint8_t>(buttons >> 8);
+@@ -361,18 +368,6 @@
+             case 6: return pad.state[5]; // right stick Y
+             case 7: return pad.state[6]; // left stick X
+             case 8: return pad.state[7]; // left stick Y
+-            case 9: return pressed(buttons, 13) ? 0xFFu : 0u;  // right
+-            case 10: return pressed(buttons, 15) ? 0xFFu : 0u; // left
+-            case 11: return pressed(buttons, 12) ? 0xFFu : 0u; // up
+-            case 12: return pressed(buttons, 14) ? 0xFFu : 0u; // down
+-            case 13: return pressed(buttons, 4) ? 0xFFu : 0u;  // triangle
+-            case 14: return pressed(buttons, 5) ? 0xFFu : 0u;  // circle
+-            case 15: return pressed(buttons, 6) ? 0xFFu : 0u;  // cross
+-            case 16: return pressed(buttons, 7) ? 0xFFu : 0u;  // square
+-            case 17: return pressed(buttons, 2) ? 0xFFu : 0u;  // L1
+-            case 18: return pressed(buttons, 3) ? 0xFFu : 0u;  // R1
+-            case 19: return pressed(buttons, 0) ? 0xFFu : 0u;  // L2
+-            case 20: return pressed(buttons, 1) ? 0xFFu : 0u;  // R2
+             default: return 0x00u;
+             }
+         case 0x43: // enter / leave config mode
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+@@ -2,6 +2,7 @@
+ #include "../ps2_iop_post.h"
+ #include "../gs/dod_pcsx2_gs.h"
+ #include "ps2_gs_pacing.h"
++#include "ps2_run_limit.h"
+ 
+ extern bool g_ps2GuestUnwinding;
+ void dodCallHistTick(uint64_t field); // [DoD] ps2_runtime.cpp
+@@ -2750,6 +2751,12 @@
+         if (auto *perf = dodWaitPerf(this)) perf->report();
+         ++m_vsyncTick;
+         m_runtime.memory().gs().vsyncTick.store(m_vsyncTick, std::memory_order_release);
++        if (ps2x::run_control::stopAtVSync && m_vsyncTick >= ps2x::run_control::stopAtVSync)
++        {
++            std::fprintf(stderr, "[runner] reached VSync %llu\n", static_cast<unsigned long long>(m_vsyncTick));
++            m_runtime.requestStop();
++            break;
++        }
+         if ((m_vsyncTick & 1u) != 0u)
+         {
+             m_runtime.memory().gs().csr.fetch_or(0x2000ull, std::memory_order_acq_rel);
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/runner/main.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/runner/main.cpp
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/runner/main.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/runner/main.cpp
+@@ -16,6 +16,7 @@
+ //   vu1          microvu (PCSX2 microVU through kzvu) | interp | builtin     default: microvu
+ //   volume       master volume 0..100                                        default: 100
+ //   rumble       0 / 1, gamepad rumble                                       default: 1
++//   key_*        one or two raylib key codes per PS2 button                   default: runtime bindings
+ //   gparam       guest address of the game's libgraph GParam record          default: unknown (see GS.cpp)
+ //   ipu_iq       guest address of libipu's 80-byte IQ input (16-byte aligned) required for HLE sceIpuInit
+ //   ipu_vq       guest address of libipu's 32-byte VQ input (16-byte aligned) required with ipu_iq
+@@ -25,6 +26,10 @@
+ // gs_options; nothing is applied by default.
+ #include "ps2_runtime.h"
+ #include "runtime/ee_scheduler.h"
++#include "ps2_run_limit.h"
++#include "ps2_replay_input.h"
++#include "p2m2_replay.h"
++#include "../lib/dod_input_settings.h"
+ #include "../lib/gs/dod_pcsx2_gs.h"
+ #include "../lib/Kernel/Stubs/IPU.h"
+ #include "../lib/Kernel/Stubs/GuestAddress.h"
+@@ -33,6 +38,7 @@
+ 
+ #include <algorithm>
+ #include <cctype>
++#include <charconv>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -61,6 +67,8 @@
+ namespace
+ {
+     namespace fs = std::filesystem;
++    P2m2Replay padReplay;
++    const std::atomic<std::uint64_t> *replayTick = nullptr;
+ 
+     std::string trim(const std::string &s)
+     {
+@@ -130,7 +138,8 @@
+         {
+             const std::string key = argv[i];
+             const char *known[] = {"elf", "iso", "title", "window", "fullscreen", "renderer", "gs_scale",
+-                                   "gs_options", "vu1", "volume", "rumble", "gparam", "ipu_iq", "ipu_vq", "ipu_d4_chcr"};
++                                   "gs_options", "vu1", "volume", "rumble", "gparam", "ipu_iq", "ipu_vq", "ipu_d4_chcr",
++                                   "replay", "max-frames"};
+             if (key.rfind("--", 0) != 0 || std::find(std::begin(known), std::end(known), key.substr(2)) == std::end(known))
+             {
+                 std::cerr << "unknown argument: " << key << std::endl;
+@@ -144,6 +153,32 @@
+             ini[key.substr(2)] = argv[i + 1];
+         }
+         const auto get = [&](const char *key, const char *fallback) { return ini.count(key) ? ini[key] : std::string(fallback); };
++
++        auto &stopAtVSync = ps2x::run_control::stopAtVSync;
++        if (const auto limit = get("max-frames", ""); !limit.empty())
++        {
++            const auto result = std::from_chars(limit.data(), limit.data() + limit.size(), stopAtVSync);
++            if (result.ec != std::errc{} || result.ptr != limit.data() + limit.size() || !stopAtVSync)
++            {
++                std::cerr << "[runner] --max-frames requires a positive integer\n";
++                return 2;
++            }
++        }
++        const auto replay = resolveFrom(fs::current_path(), get("replay", ""));
++        if (!replay.empty())
++        {
++            try
++            {
++                padReplay.load(replay);
++            }
++            catch (const std::exception &e)
++            {
++                std::cerr << "[runner] replay " << replay << ": " << e.what() << '\n';
++                return 2;
++            }
++            stopAtVSync = stopAtVSync ? std::min(stopAtVSync, padReplay.frames()) : padReplay.frames();
++            std::cout << "[runner] replay loaded: " << replay << " (" << padReplay.frames() << " frames)\n";
++        }
+ 
+         const fs::path elf = resolveFrom(exeDir, get("elf", "game/boot.elf"));
+         const fs::path iso = resolveFrom(exeDir, get("iso", ""));
+@@ -193,13 +228,38 @@
+             }
+         }
+ 
++        dod_input::KeyboardBindings keyboard;
++        std::string keyboardError;
++        if (!dod_input::load(ini, keyboard, keyboardError))
++            std::cerr << "[runner] invalid keyboard settings; using defaults: " << keyboardError << std::endl;
++        dodConfigureKeyboardInput(keyboard);
+         dodConfigureGamepad(get("rumble", "1") != "0");
+-        ps2x::iop::g_dodPadRumbleOutput = dodRequestPadRumble;
++        ps2x::iop::g_dodPadRumbleOutput = replay.empty() ? dodRequestPadRumble : nullptr;
+         // The game's own pad stack runs on the emulated IOP; its SIO2 sees a DualShock 2 in port 1 driven by the
+         // keyboard / host gamepad mapping.
+         ps2x::iop::g_dodPadStateProvider = [](int port, uint8_t *data32) { return port == 0 && dodPeekHostPadInput(data32, 32u); };
+ 
+         PS2Runtime runtime;
++        if (!replay.empty())
++        {
++            replayTick = &runtime.memory().gs().vsyncTick;
++            ps2x::run_control::replayPadState = [](int port, uint8_t *data32) {
++                const auto tick = replayTick->load(std::memory_order_acquire);
++                if (!padReplay.sample(tick, port, data32))
++                    return false;
++                static const bool trace = std::getenv("DOD_PAD_TRACE") != nullptr;
++                if (trace)
++                {
++                    static std::atomic<int> lastButtons[2] = {-1, -1};
++                    const int buttons = data32[2] | (data32[3] << 8);
++                    if (lastButtons[port].exchange(buttons, std::memory_order_relaxed) != buttons)
++                        std::fprintf(stderr, "[pad] replay tick=%llu port=%d buttons=%04X\n",
++                                     static_cast<unsigned long long>(tick), port, buttons);
++                }
++                return true;
++            };
++            ps2x::iop::g_dodPadStateProvider = ps2x::run_control::replayPadState;
++        }
+         const std::string title = get("title", "PS2Recomp game");
+         if (!runtime.initialize(title.c_str()))
+         {
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/ps2_pad.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/ps2_pad.cpp
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/ps2_pad.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/ps2_pad.cpp
+@@ -6,6 +6,7 @@
+ #include "ps2_trainer.h"
+ #include "ps2_input_readers.h"
+ #include "ps2_pad_diagnostics.h"
++#include "ps2_replay_input.h"
+ #include <string_view>
+ #include <atomic>
+ #include <algorithm>
+@@ -452,8 +453,19 @@
+     return true;
+ }
+ 
+-bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t size)
+-{
++bool PSPadBackend::readState(int port, int /*slot*/, uint8_t *data, size_t size)
++{
++    if (const auto readReplay = ps2x::run_control::replayPadState)
++    {
++        if (!data || size < 32)
++            return false;
++        if (!readReplay(port, data))
++        {
++            const HostPadSnapshot neutral;
++            std::memcpy(data, neutral.data, sizeof(neutral.data));
++        }
++        return true;
++    }
+     // Existing HLE pad readers perform a complete input sample too.
+     return readHostPadSnapshot(data, size, true);
+ }
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
+--- a/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
+@@ -304,9 +304,9 @@
+             }
+ 
+             bool usedBackend = false;
++            uint8_t backendData[32]{};
+             if (!useOverride)
+             {
+-                uint8_t backendData[32]{};
+                 if (runtime && runtime->padBackend().readState(port, slot, backendData, sizeof(backendData)))
+                 {
+                     state.buttons = static_cast<uint16_t>(backendData[2] | (backendData[3] << 8));
+@@ -324,6 +324,15 @@
+             }
+ 
+             fillPadStatus(outData, state, portState);
++            if (usedBackend && backendData[1] == 0x79 && portState.pressureEnabled)
++            {
++                // PCSX2's recording uses the SIO2 order L1/R1/L2/R2. libpad
++                // exposes the pressure fields in the order L1/L2/R1/R2.
++                std::memcpy(outData + 8, backendData + 8, 9);
++                outData[17] = backendData[18];
++                outData[18] = backendData[17];
++                outData[19] = backendData[19];
++            }
+ 
+             {
+                 std::lock_guard<std::mutex> lock(g_padStateMutex);
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/include/ps2_run_limit.h b/third_party/src/PS2Recomp/ps2xRuntime/include/ps2_run_limit.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/src/PS2Recomp/ps2xRuntime/include/ps2_run_limit.h
+@@ -0,0 +1,9 @@
++#pragma once
++
++#include <cstdint>
++
++namespace ps2x::run_control
++{
++    // Configured by the entry point before the EE scheduler's thread starts.
++    inline std::uint64_t stopAtVSync = 0;
++}
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/include/ps2_replay_input.h b/third_party/src/PS2Recomp/ps2xRuntime/include/ps2_replay_input.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/src/PS2Recomp/ps2xRuntime/include/ps2_replay_input.h
+@@ -0,0 +1,9 @@
++#pragma once
++
++#include <cstdint>
++
++namespace ps2x::run_control
++{
++    // Optional immutable input source shared by the native pad stubs and the runner.
++    inline bool (*replayPadState)(int port, std::uint8_t *state) = nullptr;
++}
+diff --git a/third_party/src/PS2Recomp/ps2xRuntime/src/runner/p2m2_replay.h b/third_party/src/PS2Recomp/ps2xRuntime/src/runner/p2m2_replay.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/src/PS2Recomp/ps2xRuntime/src/runner/p2m2_replay.h
+@@ -0,0 +1,63 @@
++#pragma once
++
++#include <algorithm>
++#include <array>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <stdexcept>
++#include <vector>
++
++class P2m2Replay
++{
++public:
++    void load(const std::filesystem::path &path)
++    {
++        std::ifstream file(path, std::ios::binary | std::ios::ate);
++        if (!file)
++            throw std::runtime_error("cannot open replay");
++        const auto fileSize = file.tellg();
++        file.seekg(0);
++        std::array<std::uint8_t, 606> header{};
++        if (!file.read(reinterpret_cast<char *>(header.data()), header.size()))
++            throw std::runtime_error("truncated replay header");
++        if (header[0] != 1)
++            throw std::runtime_error("unsupported .p2m2 version");
++        if (header[569] != 0)
++            throw std::runtime_error("savestate-based replays require a PCSX2 savestate; use a power-on recording");
++
++        const std::uint32_t frames = std::uint32_t(header[561]) | (std::uint32_t(header[562]) << 8) |
++                                     (std::uint32_t(header[563]) << 16) | (std::uint32_t(header[564]) << 24);
++        const std::uint64_t bytes = std::uint64_t(frames) * kFrameBytes;
++        if (frames == 0 || bytes > m_payload.max_size() ||
++            fileSize != static_cast<std::streamoff>(header.size() + bytes))
++            throw std::runtime_error("replay length does not match its frame count");
++
++        std::vector<std::uint8_t> payload(static_cast<std::size_t>(bytes));
++        if (!file.read(reinterpret_cast<char *>(payload.data()), static_cast<std::streamsize>(bytes)))
++            throw std::runtime_error("truncated replay payload");
++        m_payload.swap(payload);
++    }
++
++    std::uint64_t frames() const { return m_payload.size() / kFrameBytes; }
++
++    bool sample(std::uint64_t tick, int port, std::uint8_t *state) const
++    {
++        if (tick >= frames() || port < 0 || port > 1)
++            return false;
++        const auto *packet = m_payload.data() + tick * kFrameBytes + port * kPortBytes;
++        // PCSX2 leaves unrecorded controller packets zero-filled.
++        if (std::none_of(packet, packet + kPortBytes, [](std::uint8_t byte) { return byte != 0; }))
++            return false;
++        std::fill_n(state, 32, std::uint8_t{0});
++        state[0] = 0x01;
++        state[1] = 0x79; // DualShock 2 packet with recorded pressures.
++        std::copy_n(packet, kPortBytes, state + 2);
++        return true;
++    }
++
++private:
++    static constexpr std::size_t kPortBytes = 18;
++    static constexpr std::size_t kFrameBytes = 2 * kPortBytes;
++    std::vector<std::uint8_t> m_payload;
++};

@@ -3,9 +3,8 @@
 Bring stale recompiler output up to the current PS2Recomp-Fixer code generator.
 
 The GPU runner compiles generated sources (`src/runner/`) that an older recompiler
-produced. The current generator fixed three R5900 semantics that this output still
-gets wrong, and together they broke the rotating 3D/2D layers of the main menu
-and the character select screen (issue #12; the fight timer is likely affected too):
+produced. The current generator fixed R5900 semantics that this output still
+gets wrong. The fixes cover menu and character-select graphics and ADX audio:
 
 1. BLTZ/BGEZ/BLEZ/BGTZ (and their likely/link forms) test the whole 64-bit GPR.
    The stale output tested the low 32 bits, so libgcc's soft-float `__adddf3`
@@ -17,6 +16,7 @@ and the character select screen (issue #12; the fight timer is likely affected t
    A macro op that writes VF0 is undone: VF0 is (0,0,0,1).
 3. LQC2 to VF0 has no effect on the hardware, so a VU0 context restore must not
    overwrite VF0.
+4. COP1 SQRT.S reads ft. The stale output read fs, corrupting the ADX predictor.
 
 The upgrade reads the disassembly comment the recompiler prints above every
 instruction (`// 0xADDR: 0xRAW  mnemonic`), so each edit is keyed on the actual
@@ -37,6 +37,7 @@ INSTRUCTION = re.compile(r"^(\s*)// 0x([0-9a-fA-F]+): 0x([0-9a-fA-F]+)\s+(\S+)")
 SIGN_BRANCH = re.compile(r"(const bool branch_taken_0x([0-9a-fA-F]+) = \()GPR_S32(\(ctx, \d+\) (?:<|>=|<=|>) 0\);)")
 PC_LINE = re.compile(r"^\s*ctx->pc = 0x[0-9a-fA-F]+u;\s*$")
 VF0_LOAD = re.compile(r"^(\s*)ctx->vu0_vf\[0\] = _mm_castsi128_ps\(.*\);\s*$")
+SQRT_SOURCE = re.compile(r"FPU_SQRT_S\(ctx->f\[\d+\]\)")
 
 VF0_RESET = "ctx->vu0_vf[0] = _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f);"
 OP_COP2 = 0x12
@@ -92,7 +93,7 @@ def copy_pc_line(lines, i, out):
 
 def upgrade_source(text):
     """Return (upgraded text, counts of each kind of edit)."""
-    stats = {"sign_branches": 0, "mac_flags": 0, "vf0_restores": 0, "lqc2_vf0": 0}
+    stats = {"sign_branches": 0, "mac_flags": 0, "vf0_restores": 0, "lqc2_vf0": 0, "sqrt_sources": 0}
     lines = text.split("\n")
     # Entry points repeat code, so a branch condition can sit far from its disassembly comment: look the
     # branch up by the address in its variable name.
@@ -111,7 +112,16 @@ def upgrade_source(text):
             raw = int(m.group(3), 16)
             out.append(line)
             i += 1
-            if opcode(raw) == OP_LQC2 and rt_field(raw) == 0:
+            if opcode(raw) == 0x11 and (raw >> 21) & 0x1F == 0x10 and raw & 0x3F == 4:
+                i = copy_pc_line(lines, i, out)
+                if i < len(lines):
+                    body = lines[i]
+                    fixed = SQRT_SOURCE.sub(f"FPU_SQRT_S(ctx->f[{rt_field(raw)}])", body)
+                    if fixed != body:
+                        out.append(fixed)
+                        stats["sqrt_sources"] += 1
+                        i += 1
+            elif opcode(raw) == OP_LQC2 and rt_field(raw) == 0:
                 i = copy_pc_line(lines, i, out)
                 if i < len(lines):
                     load = VF0_LOAD.match(lines[i])

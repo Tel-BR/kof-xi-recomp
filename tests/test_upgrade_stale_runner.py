@@ -149,6 +149,14 @@ class TestIdempotence(unittest.TestCase):
         self.assertEqual(twice, once)
         self.assertEqual(sum(stats.values()), 0)
 
+    def test_sqrt_reads_ft_from_the_instruction(self):
+        word = (0x11 << 26) | (0x10 << 21) | (9 << 16) | (2 << 6) | 4
+        stale = f"    // 0x100000: 0x{word:x} c1\n    ctx->f[2] = FPU_SQRT_S(ctx->f[0]);\n"
+        fixed, stats = upgrade_source(stale)
+        self.assertIn("ctx->f[2] = FPU_SQRT_S(ctx->f[9]);", fixed)
+        self.assertEqual(stats["sqrt_sources"], 1)
+        self.assertEqual(upgrade_source(fixed)[0], fixed)
+
 
 class TestRunnerDirectory(unittest.TestCase):
 

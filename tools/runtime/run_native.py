@@ -1,189 +1,101 @@
 #!/usr/bin/env python3
-"""
-Runner script for native port execution of KOF XI recomp.
-Executes private/kof_xi_native.exe with the proper environment configuration.
-
-Supports:
-- Interactive execution (default, stays open until window is closed)
-- Replay playback (--replay <path_to_p2m2>)
-- Headless execution (--headless)
-- Unthrottled simulation (--unthrottled)
-- Timed runs (--timeout <seconds>)
-- Another binary, such as a diagnostic build (--exe <path>)
-
-For speed measurements capture output with --stdout/--stderr (direct file handles)
-and read it with tools/runtime/speed_report.py.
-"""
+"""Launch the installed GPU runtime or a specifically selected diagnostic build."""
 
 import argparse
+from contextlib import ExitStack
 import os
+from pathlib import Path
 import subprocess
 import sys
-import time
-from pathlib import Path
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Run KOF XI native recompiled binary.")
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=0.0,
-        help="Execution timeout in seconds (default: 0 for interactive / indefinite until window closed)",
-    )
-    parser.add_argument(
-        "--replay",
-        type=str,
-        default=None,
-        help="Path to .p2m2 replay file to play back (e.g. private/tools/pcsx2/ticket19_trunc1000.p2m2)",
-    )
-    parser.add_argument(
-        "--max-frames",
-        type=int,
-        default=0,
-        help="Maximum frames to execute before exiting (0 for unlimited)",
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Run without displaying a graphical window (useful for benchmarks/CI)",
-    )
-    parser.add_argument(
-        "--unthrottled",
-        action="store_true",
-        help="Run unthrottled without 60 FPS frame pacing limit",
-    )
-    parser.add_argument(
-        "--exe",
-        type=str,
-        default=None,
-        help="Run this binary instead of private/kof_xi_native.exe (e.g. a diagnostic build)",
-    )
-    parser.add_argument(
-        "--stdout",
-        type=str,
-        default=None,
-        help="Path to capture stdout (default: printed directly to terminal)",
-    )
-    parser.add_argument(
-        "--stderr",
-        type=str,
-        default=None,
-        help="Path to capture stderr (default: printed directly to terminal)",
-    )
-    args = parser.parse_args()
+REPO = Path(__file__).resolve().parents[2]
+GPU_BUILD = REPO / "private/tools/PS2Recomp-Fixer/build/ps2recomp"
+GPU_RUNNER = GPU_BUILD / "ps2xRuntime/Release/ps2EntryRunner.exe"
 
-    repo_root = Path(__file__).resolve().parent.parent.parent
-    iso_path = (repo_root / "private/ps2/PS2 - The King of Fighters XI.iso").resolve()
-    elf_path = (repo_root / "private/extracted/SLUS_216.87").resolve()
-    exe_path = (repo_root / "private/kof_xi_native.exe").resolve()
 
-    if args.exe:
-        exe_path = (repo_root / args.exe).resolve()  # an absolute --exe path replaces repo_root
-    if not exe_path.exists():
-        fallback_exe = repo_root / "private/tools/PS2Recomp/out/build/ps2xRuntime/ps2EntryRunner.exe"
-        if not args.exe and fallback_exe.exists():
-            exe_path = fallback_exe
-        else:
-            print(f"Error: Native binary not found at {exe_path}", file=sys.stderr)
-            return 1
+def from_repo(path):
+    return (REPO / path).resolve()
 
-    if not elf_path.exists():
-        print(f"Error: Game ELF not found at {elf_path}", file=sys.stderr)
-        return 1
 
-    if not iso_path.exists():
-        print(f"Error: Game ISO not found at {iso_path}", file=sys.stderr)
-        return 1
+def open_log(stack, name):
+    if name is None:
+        return None
+    path = from_repo(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return stack.enter_context(path.open("wb"))
 
-    clang_bin = r"C:\Users\Admin\.local\share\retcomm\toolchains\cmake-clang-v1\latest\bin"
-    env = os.environ.copy()
-    env["PATH"] = f"{repo_root / 'private'};{clang_bin};{env.get('PATH', '')}"
-    env["PS2X_DEFAULT_BOOT_ELF"] = str(elf_path)
-    env["PS2X_CD_IMAGE"] = str(iso_path)
-    env["PS2X_DISC_DIR"] = str((repo_root / "private/extracted").resolve())
 
-    cmd = [str(exe_path), str(elf_path)]
-
-    if args.headless:
-        env["PS2X_HEADLESS"] = "1"
-        cmd.append("--headless")
-
-    if args.unthrottled:
-        env["PS2X_UNTHROTTLED"] = "1"
-        cmd.append("--unthrottled")
-
-    if args.max_frames > 0:
-        env["PS2X_MAX_FRAMES"] = str(args.max_frames)
-        cmd.extend(["--max-frames", str(args.max_frames)])
-
-    if args.replay:
-        replay_file = Path(args.replay)
-        if not replay_file.is_absolute():
-            replay_file = (repo_root / replay_file).resolve()
-        if not replay_file.exists():
-            print(f"Error: Replay file not found at {replay_file}", file=sys.stderr)
-            return 1
-        env["PS2X_REPLAY_P2M2"] = str(replay_file)
-        cmd.extend(["--replay", str(replay_file)])
-        print(f"Loading replay: {replay_file}")
-
-    stdout_file = None
-    stderr_file = None
-    if args.stdout:
-        out_p = Path(args.stdout) if Path(args.stdout).is_absolute() else repo_root / args.stdout
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        stdout_file = open(out_p, "w", encoding="utf-8", errors="replace")
-
-    if args.stderr:
-        err_p = Path(args.stderr) if Path(args.stderr).is_absolute() else repo_root / args.stderr
-        err_p.parent.mkdir(parents=True, exist_ok=True)
-        stderr_file = open(err_p, "w", encoding="utf-8", errors="replace")
-
-    print(f"Executing native binary: {exe_path}")
-    print(f"ELF: {elf_path}")
-    print(f"ISO: {iso_path}")
-    if args.timeout > 0:
-        print(f"Running with {args.timeout}s timeout...")
-    else:
-        print("Running in interactive mode (close the game window or press Ctrl+C to stop)...")
-
-    proc = subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=stdout_file or sys.stdout,
-        stderr=stderr_file or sys.stderr,
-        cwd=str((repo_root / "private").resolve()),
-    )
-
-    try:
-        if args.timeout > 0:
-            time.sleep(args.timeout)
-            print(f"\nTimeout of {args.timeout}s reached. Terminating process...")
-            proc.terminate()
-            try:
-                proc.wait(timeout=3)
-            except Exception:
-                proc.kill()
-                proc.wait()
-        else:
-            proc.wait()
-    except KeyboardInterrupt:
-        print("\nInterrupted by user. Terminating process...")
-        proc.terminate()
+def stop(process):
+    if process.poll() is None:
+        process.terminate()
         try:
-            proc.wait(timeout=3)
-        except Exception:
-            proc.kill()
-            proc.wait()
-    finally:
-        if stdout_file:
-            stdout_file.close()
-        if stderr_file:
-            stderr_file.close()
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
 
-    print(f"Process exited with code {proc.returncode}")
-    return proc.returncode
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--exe", type=Path, help="explicit diagnostic executable")
+    parser.add_argument("--replay", type=Path, help="power-on PCSX2 .p2m2 recording")
+    parser.add_argument("--max-frames", type=int, help="stop at this emulated VSync")
+    parser.add_argument("--timeout", type=float, help="stop after this many host seconds")
+    parser.add_argument("--stdout", type=Path)
+    parser.add_argument("--stderr", type=Path)
+    parser.add_argument("--headless", action="store_true", help="legacy diagnostic executable only")
+    parser.add_argument("--unthrottled", action="store_true", help="legacy diagnostic executable only")
+    args = parser.parse_args(argv)
+    if args.max_frames is not None and args.max_frames < 0:
+        parser.error("--max-frames must be nonnegative")
+    if args.timeout is not None and args.timeout < 0:
+        parser.error("--timeout must be nonnegative")
+    if (args.headless or args.unthrottled) and args.exe is None:
+        parser.error("--headless and --unthrottled require an explicit legacy diagnostic --exe")
+
+    exe = from_repo(args.exe) if args.exe else GPU_RUNNER
+    if not exe.is_file():
+        print(f"Runtime executable not found: {exe}\nBuild the GPU runtime with build_runtime.bat.", file=sys.stderr)
+        return 1
+
+    command = [str(exe)]
+    env = dict(os.environ, KOF_VBLANK_WAKE1="1", KOF_GS_DISPFIX="1", DOD_FPS="1")
+    cwd = exe.parent
+    if args.headless or args.unthrottled:
+        # Preserve explicit CPU diagnostic runs used by the historical speed measurements.
+        cwd = REPO / "private"
+        env.update(PS2X_CD_IMAGE=str(cwd / "ps2/PS2 - The King of Fighters XI.iso"),
+                   PS2X_DISC_DIR=str(cwd / "extracted"))
+        command.append(str(cwd / "extracted/SLUS_216.87"))
+        if args.headless:
+            command.append("--headless")
+        if args.unthrottled:
+            command.append("--unthrottled")
+    if args.max_frames:
+        command.extend(["--max-frames", str(args.max_frames)])
+    if args.replay is not None:
+        replay = from_repo(args.replay)
+        if not replay.is_file():
+            print(f"Replay file not found: {replay}", file=sys.stderr)
+            return 1
+        command.extend(["--replay", str(replay)])
+
+    print(f"Launching {exe}", flush=True)
+    if args.replay is not None:
+        print(f"Replay {replay}", flush=True)
+    with ExitStack() as stack:
+        process = subprocess.Popen(command, cwd=cwd, env=env,
+                                   stdout=open_log(stack, args.stdout), stderr=open_log(stack, args.stderr))
+        try:
+            return process.wait(timeout=args.timeout or None)
+        except subprocess.TimeoutExpired:
+            print(f"Stopped after {args.timeout:g} seconds.")
+            return 124
+        except KeyboardInterrupt:
+            return 130
+        finally:
+            stop(process)
 
 
 if __name__ == "__main__":

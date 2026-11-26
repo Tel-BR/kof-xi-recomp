@@ -12,6 +12,8 @@ interactive keyboard path is the one under test. Milestones, in order:
     MODE_VISIBLE Cross left the menu and the next screen (character select) renders lit and
                  colourful for several consecutive captures (issue #12; it used to stay black)
     FPS          the median internal rate after boot stays at or above --fps-floor
+    AUDIO        with --audio, at least 85% of mixer seconds from the main menu onward have
+                 RMS > 150, including 12 seconds of capture after mode entry
 
     python tools/runtime/closed_loop.py --title-reference private/scratch/diag/title_find/reference_title_at_dump.png
 
@@ -45,9 +47,16 @@ TITLE_MIN_IOU = 0.70      # green logo mask against the reference title capture
 MODE_MIN_LIT = 0.5        # fraction of non-black pixels on the screen after the menu
 MODE_MIN_COLOURFUL = 0.05 # fraction of saturated pixels (rules out white or grey flashes)
 FPS_FLOOR = 45.0          # median game frames/s with 0.25 s captures (about 59.9 without them)
+AUDIO_FLOOR = 0.85
+AUDIO_RMS_THRESHOLD = 150
+AUDIO_RATE = 48000
+AUDIO_FRAME_BYTES = 4     # 16-bit stereo mixer output
+MIX_HEADER_BYTES = 44    # Fixed header written by DOD_SPU2_WAV
+AUDIO_MODE_SECONDS = 12
 ROWS = {"ARCADE": (176, 202), "TEAM": (209, 235), "SINGLE": (242, 268),
         "ENDLESS": (275, 301), "CHALLENGE": (308, 334), "PRACTICE": (341, 367)}
 VK = {"START": 0x0D, "CROSS": 0x58, "UP": 0x26, "DOWN": 0x28}
+NUMPAD_VK = {"START": 0x6B, "CROSS": 0x61, "UP": 0x20, "DOWN": 0x53}
 EXTENDED_VK = {VK["UP"], VK["DOWN"]}  # arrows: without lParam bit 24 GLFW maps them to the numpad
 MODE_STREAK = 3
 
@@ -124,6 +133,24 @@ def apply_fps_floor(verdict, fps, floor):
     return verdict if fps >= floor else f"RED FPS: median {fps} < floor {floor}"
 
 
+def audio_activity(path, start_frame):
+    """Count full one-second mixer windows above the RMS threshold from the menu onward."""
+    if not path.is_file():
+        return 0, 0
+    offset = MIX_HEADER_BYTES + start_frame * AUDIO_FRAME_BYTES
+    window_bytes = AUDIO_RATE * AUDIO_FRAME_BYTES
+    # The runner is terminated after capture. Use the file length because its WAV size fields
+    # are periodically updated and may lag the actual mixer data.
+    windows = max(0, (path.stat().st_size - offset) // window_bytes)
+    active = 0
+    with path.open("rb") as capture:
+        capture.seek(offset)
+        for _ in range(windows):
+            samples = np.frombuffer(capture.read(window_bytes), dtype="<i2").astype(np.float64)
+            active += int(np.mean(samples * samples) > AUDIO_RMS_THRESHOLD ** 2)
+    return active, windows
+
+
 def _windows():
     import ctypes
     user32 = ctypes.windll.user32
@@ -149,21 +176,25 @@ def find_hwnd(pid):
     return found[0] if found else None
 
 
-def tap(hwnd, button, hold=0.15):
+def tap(hwnd, button, hold=0.15, *, keys=VK):
     _, user32 = _windows()
-    vk = VK[button]
+    vk = keys[button]
     down = 1 | (user32.MapVirtualKeyW(vk, 0) << 16) | ((1 << 24) if vk in EXTENDED_VK else 0)
     user32.PostMessageW(hwnd, WM_KEYDOWN, vk, down)
     time.sleep(hold)
     user32.PostMessageW(hwnd, WM_KEYUP, vk, down | (1 << 30) | (1 << 31))
 
 
-def run(executable, references, run_root, timeout, fps_floor=FPS_FLOOR):
+def run(executable, references, run_root, timeout, fps_floor=FPS_FLOOR, *, check_audio=False, keys=VK):
     # Absolute: the runner starts in its own directory, so a relative capture path would land there.
     case = Path(tempfile.mkdtemp(prefix="loop_", dir=Path(run_root).resolve()))
     env = dict(os.environ, KOF_VBLANK_WAKE1="1", KOF_GS_DISPFIX="1", DOD_FPS="1", DOD_MUTE="1",
                DOD_WINDOW_UNFOCUSED="1", DOD_PAD_TRACE="1",
                DOD_FRAME_CAPTURE_DIR=str(case), DOD_FRAME_CAPTURE_EVERY="0.25")
+    mix = case / "mix.wav"
+    if check_audio:
+        env.update(DOD_SPU2_WAV=str(mix), DOD_SPU2_STATS="1")
+    audio_start = None
     log = (case / "driver.log").open("w", encoding="utf-8")
 
     def say(message):
@@ -202,36 +233,38 @@ def run(executable, references, run_root, timeout, fps_floor=FPS_FLOOR):
                 if state == "TITLE":
                     if title_score(frame, references) >= TITLE_MIN_IOU and start_prompt_visible(frame):
                         say(f"TITLE {latest.stem}")
-                        tap(hwnd, "START")
+                        tap(hwnd, "START", keys=keys)
                         state, next_retry, deadline = "MENU", now + 2.5, now + 20
                         verdict = "RED MENU: Start did not open the main menu"
                 elif state == "MENU":
                     if row == "ARCADE":
                         say(f"MENU {latest.stem}")
+                        if check_audio and mix.exists():
+                            audio_start = max(0, (mix.stat().st_size - MIX_HEADER_BYTES) // AUDIO_FRAME_BYTES)
                         time.sleep(0.9)
-                        tap(hwnd, "DOWN")
+                        tap(hwnd, "DOWN", keys=keys)
                         state, deadline, next_retry = "TEAM", now + 10, now + 1.5
                         verdict = "RED NAV: Down did not reach TEAM"
                     elif now >= next_retry and start_prompt_visible(frame):
                         say("retry START")
-                        tap(hwnd, "START")
+                        tap(hwnd, "START", keys=keys)
                         next_retry = now + 2.5
                 elif state == "TEAM" and row == "TEAM":
                     say(f"NAV down {latest.stem}")
                     time.sleep(0.5)
-                    tap(hwnd, "UP")
+                    tap(hwnd, "UP", keys=keys)
                     state, deadline, next_retry = "BACK", now + 10, now + 1.5
                     verdict = "RED NAV: Up did not return to ARCADE"
                 elif (state, row) in (("TEAM", "ARCADE"), ("BACK", "TEAM")) and now >= next_retry:
                     # A press during the highlight animation can be dropped: repeat it on a stable row.
                     arrow = "DOWN" if state == "TEAM" else "UP"
                     say(f"repeat {arrow} on stable {row} row")
-                    tap(hwnd, arrow)
+                    tap(hwnd, arrow, keys=keys)
                     next_retry = now + 1.5
                 elif state == "BACK" and row == "ARCADE":
                     say(f"NAV up {latest.stem}")
                     time.sleep(0.9)
-                    tap(hwnd, "CROSS")
+                    tap(hwnd, "CROSS", keys=keys)
                     state, deadline = "LEAVE", now + 15
                     verdict = "RED MODE_VISIBLE: Cross did not leave the main menu"
                 elif state == "LEAVE":
@@ -247,14 +280,37 @@ def run(executable, references, run_root, timeout, fps_floor=FPS_FLOOR):
                         Image.fromarray(frame).save(case / "mode_visible.png")
                         say(f"MODE_VISIBLE {latest.stem} (saved mode_visible.png)")
                         verdict = "GREEN title+menu+nav+mode_visible"
+                        if check_audio:
+                            try:
+                                process.wait(timeout=AUDIO_MODE_SECONDS)
+                                verdict = "RED AUDIO: runner exited during capture"
+                            except subprocess.TimeoutExpired:
+                                pass
                         break
         finally:
             if process.poll() is None:
                 process.terminate()
             process.wait(timeout=10)
-    fps = median_fps((case / "err").read_text(errors="replace"))
+    err_text = (case / "err").read_text(errors="replace")
+    fps = median_fps(err_text)
     say(f"fps median={fps}")
     verdict = apply_fps_floor(verdict, fps, fps_floor)
+    if check_audio:
+        active, windows = audio_activity(mix, audio_start) if audio_start is not None else (0, 0)
+        fraction = active / windows if windows else 0.0
+        if windows:
+            say(f"audio active={fraction:.1%} ({active}/{windows} seconds with RMS > {AUDIO_RMS_THRESHOLD})")
+        else:
+            say("audio unmeasured: no complete mixer windows after menu entry")
+        if verdict.startswith("GREEN"):
+            if re.search(r"can't create PSM|PSMTBF_Create fails", err_text, re.IGNORECASE):
+                verdict = "RED AUDIO: CRI ADX stream creation failed"
+            elif windows < AUDIO_MODE_SECONDS:
+                verdict = f"RED AUDIO: incomplete mixer capture ({windows} seconds)"
+            elif fraction < AUDIO_FLOOR:
+                verdict = f"RED AUDIO: active fraction {fraction:.1%} < {AUDIO_FLOOR:.0%}"
+            else:
+                verdict += "+audio"
     say(verdict)
     log.close()
     return (0 if verdict.startswith("GREEN") else 1), case
@@ -268,11 +324,16 @@ def main(argv=None):
     parser.add_argument("--run-root", type=Path, default=REPO / "private/scratch/diag")
     parser.add_argument("--timeout", type=float, default=150)
     parser.add_argument("--fps-floor", type=float, default=FPS_FLOOR)
+    parser.add_argument("--audio", action="store_true",
+                        help="require at least 85%% active mixer audio from the menu through mode capture")
+    parser.add_argument("--numpad", action="store_true",
+                        help="drive the GPU profile with numpad + and 1, S and Space")
     args = parser.parse_args(argv)
     reference = Image.open(args.title_reference).convert("RGB")
     width, height = reference.size
     references = [as_frame(reference), as_frame(reference.crop((int(.035 * width), 0, int(.965 * width), height)))]
-    code, _ = run(args.executable.resolve(), references, args.run_root, args.timeout, args.fps_floor)
+    code, _ = run(args.executable.resolve(), references, args.run_root, args.timeout, args.fps_floor,
+                  check_audio=args.audio, keys=NUMPAD_VK if args.numpad else VK)
     return code
 
 
